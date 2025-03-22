@@ -454,6 +454,18 @@ public class MovementProcessor {
      * @return true if cheating was detected
      */
     public boolean handleExtremeSpeedCheck(Player player, Location from, Location to, long timeDelta) {
+        // First check if this is a teleport - large distances or command teleports
+        double totalDistance = from.distance(to);
+        if (totalDistance > 20) { // Keep using 20 blocks as in the original code
+            // This is very likely a teleport, not a speed hack
+            plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + 
+                    String.format("%.2f", totalDistance) + " blocks");
+            // Just update the location without flagging
+            lastLocations.put(player.getUniqueId(), to);
+            lastMoveTime.put(player.getUniqueId(), System.currentTimeMillis());
+            return false;
+        }
+
         // Calculate horizontal distance
         double dx = to.getX() - from.getX();
         double dz = to.getZ() - from.getZ();
@@ -465,24 +477,46 @@ public class MovementProcessor {
         // Calculate speed in blocks per second
         double speed = (horizontalDistance / Math.max(50, timeDelta)) * 1000.0;
         
+        // Get base speed limit from config
+        double speedLimit = plugin.getConfigManager().getMaxHorizontalSpeed();
+        
+        // SPECIAL CASE: Detect sprint-jumping the same way the main check does
+        boolean isJumping = to.getY() > from.getY() && !player.isFlying();
+        boolean isNearJumpStart = MovementUtils.wasNearGround(player, from);
+        
+        // If player is sprint-jumping, allow higher speeds just like in the main check
+        if (player.isSprinting() && isJumping && isNearJumpStart) {
+            speedLimit *= 1.6; // Allow 60% higher speed for sprint-jumps, matching the main check
+            
+            // Debug log for sprint-jumping
+            plugin.getLogger().fine(player.getName() + " detected sprint-jumping, increased max speed to " + 
+                    String.format("%.2f", speedLimit));
+        }
+        
+        // Check if player is in special movement states
+        if (player.isFlying() || player.isGliding() || MovementUtils.isInLiquid(player)) {
+            // These states all allow higher speeds
+            speedLimit *= 2.0;
+        }
+        
         // Use a stricter limit for players with existing violations
         UUID playerId = player.getUniqueId();
         int violations = plugin.getViolationManager().getViolationLevel(playerId);
         
-        // Base speed limit that no player should exceed
-        double speedLimit = 10.0; // 10 blocks/sec is very fast
-        
-        // For players with violations, use stricter limits
-        if (violations > 0) {
-            // The more violations, the stricter the limit
-            speedLimit = Math.max(7.0, 10.0 - (violations * 0.5));
+        // For players with violations, use stricter limits, but only if they're not sprint-jumping
+        if (violations > 0 && !(player.isSprinting() && isJumping && isNearJumpStart)) {
+            // The more violations, the stricter the limit, but never below 7.0
+            speedLimit = Math.max(7.0, speedLimit - (violations * 0.5));
         }
         
-        if (speed > speedLimit) {
+        // Add a 20% buffer to reduce false positives
+        double speedLimitWithBuffer = speedLimit * 1.2;
+        
+        if (speed > speedLimitWithBuffer) {
             // This is a current, active speed hack - teleport back immediately
             plugin.getLogger().warning("Speed hack detected for " + player.getName() + 
                     " - " + String.format("%.2f", speed) + " blocks/s (limit: " + 
-                    String.format("%.1f", speedLimit) + ")");
+                    String.format("%.1f", speedLimitWithBuffer) + ")");
             
             // Teleport back to last known good position safely on main thread
             safelyTeleportPlayer(player, from);
