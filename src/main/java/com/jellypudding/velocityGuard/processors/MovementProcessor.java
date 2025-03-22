@@ -309,12 +309,12 @@ public class MovementProcessor {
                     if (player.isOnline()) {
                         if (speedViolation) {
                             plugin.getLogger().info("Handling speed violation for " + player.getName());
-                            plugin.getViolationManager().addViolation(player, "SpeedHack", speedDetails);
+                            plugin.getViolationManager().addViolation(player, "SpeedCheat", speedDetails);
                         }
                         
                         if (flightViolation) {
                             plugin.getLogger().info("Handling flight violation for " + player.getName());
-                            plugin.getViolationManager().addViolation(player, "FlightHack", flightDetails);
+                            plugin.getViolationManager().addViolation(player, "FlightCheat", flightDetails);
                         }
                         
                         // Only correct position for this specific violation, not future movements
@@ -457,7 +457,7 @@ public class MovementProcessor {
         // First check if this is a teleport - large distances or command teleports
         double totalDistance = from.distance(to);
         if (totalDistance > 20) { // Keep using 20 blocks as in the original code
-            // This is very likely a teleport, not a speed hack
+            // This is very likely a teleport, not a speed cheat.
             plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + 
                     String.format("%.2f", totalDistance) + " blocks");
             // Just update the location without flagging
@@ -513,8 +513,8 @@ public class MovementProcessor {
         double speedLimitWithBuffer = speedLimit * 1.2;
         
         if (speed > speedLimitWithBuffer) {
-            // This is a current, active speed hack - teleport back immediately
-            plugin.getLogger().warning("Speed hack detected for " + player.getName() + 
+            // This is a current, active speed cheat - teleport back immediately
+            plugin.getLogger().warning("Speed cheat detected for " + player.getName() + 
                     " - " + String.format("%.2f", speed) + " blocks/s (limit: " + 
                     String.format("%.1f", speedLimitWithBuffer) + ")");
             

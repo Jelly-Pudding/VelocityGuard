@@ -72,7 +72,7 @@ public final class VelocityGuard extends JavaPlugin {
         getServer().getScheduler().runTaskLater(this, this::checkPacketListenerStatus, 20 * 10);
         
         getLogger().info("VelocityGuard has been enabled with asynchronous processing on " + 
-                threads + " threads. Now monitoring for speed and flight hacks.");
+                threads + " threads. Now monitoring for speed and flight cheats.");
     }
     
     /**
