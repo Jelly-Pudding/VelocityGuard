@@ -69,60 +69,88 @@ public class PacketListener {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                     try {
-                        // Debug log to confirm packet processing
-                        plugin.getLogger().info("VelocityGuard: Processing packet for player " + player.getName() + ": " + msg.getClass().getSimpleName());
-                        
-                        // Check if it's a position packet by class name (version-safe approach)
+                        // Get the packet class name
                         String packetName = msg.getClass().getSimpleName();
                         
-                        // Print the full classname to help debug
-                        plugin.getLogger().info("VelocityGuard: Full packet class: " + msg.getClass().getName());
-                        
-                        // Try directly checking movement across several possible packet names
+                        // Only log if it's a movement packet to reduce spam
                         if (packetName.contains("Position") || 
                             packetName.contains("Pos") || 
                             packetName.contains("Move") || 
                             packetName.contains("Look")) {
                             
+                            plugin.getLogger().info("VelocityGuard: Movement packet detected for " + player.getName() + ": " + packetName);
+                            
                             // Get current location as "from"
                             Location from = player.getLocation();
-                            
-                            // Debug log position packet detection
-                            plugin.getLogger().info("VelocityGuard: Movement packet detected for " + player.getName());
+                            Location to = null;
                             
                             try {
-                                // Get position from packet using reflection
-                                double x = getDoubleField(msg, "x", "a");
-                                double y = getDoubleField(msg, "y", "b");
-                                double z = getDoubleField(msg, "z", "c");
+                                // Try to extract position using different common field names
+                                double x = 0, y = 0, z = 0;
+                                boolean positionFound = false;
                                 
-                                // Print available fields to help with debugging
-                                plugin.getLogger().info("VelocityGuard: Available fields in packet:");
-                                for (Field field : msg.getClass().getDeclaredFields()) {
+                                // Get all fields to check available ones for debugging
+                                Field[] fields = msg.getClass().getDeclaredFields();
+                                for (Field field : fields) {
                                     field.setAccessible(true);
-                                    plugin.getLogger().info("  - " + field.getName() + " (" + field.getType().getSimpleName() + ")");
+                                    String fieldName = field.getName();
+                                    Class<?> fieldType = field.getType();
+                                    
+                                    // Log field for debugging
+                                    plugin.getLogger().info("Field: " + fieldName + " (" + fieldType.getName() + ")");
+                                    
+                                    // Check if this is a position field
+                                    if (fieldType == double.class) {
+                                        if (fieldName.equals("x") || fieldName.equals("a")) {
+                                            x = field.getDouble(msg);
+                                            positionFound = true;
+                                        } else if (fieldName.equals("y") || fieldName.equals("b")) {
+                                            y = field.getDouble(msg);
+                                            positionFound = true;
+                                        } else if (fieldName.equals("z") || fieldName.equals("c")) {
+                                            z = field.getDouble(msg);
+                                            positionFound = true;
+                                        }
+                                    }
                                 }
                                 
-                                // Get rotation from packet or current rotation
-                                float yaw = player.getLocation().getYaw();
-                                float pitch = player.getLocation().getPitch();
-                                
-                                if (packetName.contains("Rot") || packetName.contains("Look")) {
-                                    yaw = getFloatField(msg, "yRot", "e");
-                                    pitch = getFloatField(msg, "xRot", "d");
+                                // If we found position data
+                                if (positionFound) {
+                                    // Get rotation from current location if not in packet
+                                    float yaw = from.getYaw();
+                                    float pitch = from.getPitch();
+                                    
+                                    // Create destination location
+                                    to = new Location(player.getWorld(), x, y, z, yaw, pitch);
+                                    
+                                    // Log the movement
+                                    plugin.getLogger().info("VelocityGuard: " + player.getName() + " movement: " + 
+                                        String.format("(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)", 
+                                        from.getX(), from.getY(), from.getZ(), 
+                                        to.getX(), to.getY(), to.getZ()));
+                                    
+                                    // Queue the movement for async processing
+                                    plugin.getMovementProcessor().queueMovement(player, from, to);
+                                } else {
+                                    // Fallback: Check if the packet has a member that contains Position info
+                                    for (Field field : fields) {
+                                        field.setAccessible(true);
+                                        Object fieldValue = field.get(msg);
+                                        
+                                        if (fieldValue != null && 
+                                            (field.getName().contains("pos") || field.getName().contains("Pos"))) {
+                                            plugin.getLogger().info("Found possible position object: " + field.getName());
+                                            
+                                            // Try to extract x, y, z from this object
+                                            // This is a fallback approach
+                                            for (Field posField : fieldValue.getClass().getDeclaredFields()) {
+                                                posField.setAccessible(true);
+                                                String posFieldName = posField.getName();
+                                                plugin.getLogger().info("Position field: " + posFieldName);
+                                            }
+                                        }
+                                    }
                                 }
-                                
-                                // Create destination location
-                                Location to = new Location(player.getWorld(), x, y, z, yaw, pitch);
-                                
-                                // Debug log movement details
-                                plugin.getLogger().info("VelocityGuard: " + player.getName() + " movement: " + 
-                                    String.format("(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)", 
-                                    from.getX(), from.getY(), from.getZ(), 
-                                    to.getX(), to.getY(), to.getZ()));
-                                
-                                // Queue the movement for async processing
-                                plugin.getMovementProcessor().queueMovement(player, from, to);
                             } catch (Exception e) {
                                 plugin.getLogger().warning("VelocityGuard: Error extracting packet data: " + e.getMessage());
                                 e.printStackTrace();

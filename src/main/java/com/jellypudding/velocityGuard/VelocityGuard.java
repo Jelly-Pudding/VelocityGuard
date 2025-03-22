@@ -32,9 +32,9 @@ public final class VelocityGuard extends JavaPlugin {
         this.violationManager = new ViolationManager(this);
         
         // Create the thread pool with a fixed number of threads
-        // Typically you'd want fewer threads than CPU cores to avoid overwhelming the system
-        int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         this.checkExecutor = Executors.newFixedThreadPool(threads);
+        getLogger().info("Initialized thread pool with " + threads + " threads");
         
         // Initialize the movement processor
         this.movementProcessor = new MovementProcessor(this);
@@ -52,7 +52,8 @@ public final class VelocityGuard extends JavaPlugin {
         // Install packet handlers
         packetListener.inject();
         
-        getLogger().info("VelocityGuard has been enabled with asynchronous processing.");
+        getLogger().info("VelocityGuard has been enabled with asynchronous processing on " + 
+                threads + " threads. Now monitoring for speed and flight hacks.");
     }
 
     @Override
@@ -89,5 +90,9 @@ public final class VelocityGuard extends JavaPlugin {
     
     public ExecutorService getCheckExecutor() {
         return checkExecutor;
+    }
+
+    public PacketListener getPacketListener() {
+        return packetListener;
     }
 }

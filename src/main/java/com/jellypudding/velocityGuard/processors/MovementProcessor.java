@@ -60,14 +60,17 @@ public class MovementProcessor {
     public void processQueue() {
         if (movementQueue.isEmpty()) return;
         
-        plugin.getLogger().info("VelocityGuard: Processing " + movementQueue.size() + " queued movements");
+        int queueSize = movementQueue.size();
+        if (queueSize > 0) {
+            plugin.getLogger().info("VelocityGuard: Processing " + queueSize + " queued movements");
+        }
         
-        while (!movementQueue.isEmpty()) {
-            MovementData data = movementQueue.poll();
-            if (data == null) continue;
-            
-            // Process in thread pool
-            plugin.getCheckExecutor().execute(() -> checkMovement(data));
+        // Process all queued movements
+        MovementData data;
+        while ((data = movementQueue.poll()) != null) {
+            // Submit to thread pool for processing
+            final MovementData finalData = data;
+            plugin.getCheckExecutor().execute(() -> checkMovement(finalData));
         }
     }
     
@@ -99,28 +102,34 @@ public class MovementProcessor {
         // Skip if player is offline or we don't have their last location
         if (player == null || !lastLocations.containsKey(playerUUID)) return;
         
-        // Debug log that we're checking movement
-        plugin.getLogger().info("Checking movement for " + player.getName());
-        
         Location from = lastLocations.get(playerUUID);
         Location to = data.getTo();
         long currentTime = data.getTimestamp();
+        
+        // Calculate time delta in milliseconds
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerUUID, currentTime);
+        if (timeDelta <= 0) timeDelta = 50; // Default to 50ms if time delta is invalid
+        
+        // Debug log that we're checking movement
+        plugin.getLogger().info("Checking movement for " + player.getName() + 
+                " from " + formatLocation(from) + " to " + formatLocation(to));
         
         // Apply latency compensation
         boolean compensateLag = plugin.getConfigManager().isLagCompensationEnabled();
-        double lagFactor = compensateLag ? Math.max(1.0, 1.0 + (player.getPing() / PING_COMPENSATION_MS) * 0.1) : 1.0;
+        double lagFactor = compensateLag ? Math.max(1.0, 1.0 + (player.getPing() / 1000.0)) : 1.0;
         
-        // Check horizontal speed
-        double horizontalSpeed = MovementUtils.calculateHorizontalSpeed(from, to);
+        // Calculate horizontal speed in blocks per second
+        double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
+        double horizontalSpeed = (horizontalDistance / timeDelta) * 1000.0;
+        
         double maxHorizontalSpeed = MovementUtils.getMaxHorizontalSpeed(player, 
                 plugin.getConfigManager().getMaxHorizontalSpeed()) * lagFactor;
         
         // Debug log the speed values
         plugin.getLogger().info(player.getName() + " speed check: current=" + String.format("%.2f", horizontalSpeed) + 
-                ", max=" + String.format("%.2f", maxHorizontalSpeed));
+                " blocks/s, max=" + String.format("%.2f", maxHorizontalSpeed) + " blocks/s");
         
-        // Adjust for conditions
+        // Adjust for special conditions
         if (MovementUtils.isInLiquid(player)) {
             maxHorizontalSpeed *= 0.8;
         }
@@ -129,24 +138,34 @@ public class MovementProcessor {
             maxHorizontalSpeed *= 5.0;
         }
         
-        // Check if speed exceeds limit
-        final boolean speedViolation = horizontalSpeed > maxHorizontalSpeed;
+        // Check if speed exceeds limit (with a small threshold to reduce false positives)
+        final boolean speedViolation = horizontalSpeed > (maxHorizontalSpeed * 1.05);
         
         if (speedViolation) {
-            plugin.getLogger().info(player.getName() + " SPEED VIOLATION DETECTED!");
+            plugin.getLogger().warning(player.getName() + " SPEED VIOLATION DETECTED! " + 
+                    String.format("%.2f", horizontalSpeed) + " > " + 
+                    String.format("%.2f", maxHorizontalSpeed));
         }
         
-        // Check vertical movement
+        // Check vertical movement (flight)
         final boolean flightViolation;
         final String flightDetails;
         
-        if (!MovementUtils.isNearGround(player) && !MovementUtils.isInLiquid(player)) {
-            double verticalSpeed = MovementUtils.calculateVerticalSpeed(from, to);
+        if (!MovementUtils.isNearGround(player) && !MovementUtils.isInLiquid(player) && !player.isFlying()) {
+            double verticalDistance = to.getY() - from.getY();
+            double verticalSpeed = (verticalDistance / timeDelta) * 1000.0;
             double maxVerticalSpeed = plugin.getConfigManager().getMaxVerticalSpeed() * lagFactor;
+            
+            // Adjust for falling (negative vertical movement has different physics constraints)
+            if (verticalDistance < 0) {
+                // Terminal velocity for falling is higher
+                maxVerticalSpeed = Math.max(maxVerticalSpeed, 20.0); // Typical maximum falling speed
+            }
             
             // Debug log vertical speed
             plugin.getLogger().info(player.getName() + " vertical speed check: current=" + 
-                    String.format("%.2f", verticalSpeed) + ", max=" + String.format("%.2f", maxVerticalSpeed * 1.5));
+                    String.format("%.2f", verticalSpeed) + " blocks/s, max=" + 
+                    String.format("%.2f", maxVerticalSpeed * 1.5) + " blocks/s");
             
             if (player.isGliding()) {
                 maxVerticalSpeed *= 3.0;
@@ -155,9 +174,9 @@ public class MovementProcessor {
             if (Math.abs(verticalSpeed) > Math.abs(maxVerticalSpeed * 1.5)) {
                 flightViolation = true;
                 flightDetails = "Vertical Speed: " + String.format("%.2f", verticalSpeed) + 
-                        " > Max: " + String.format("%.2f", maxVerticalSpeed * 1.5) +
-                        (player.isGliding() ? " (Elytra)" : "");
-                plugin.getLogger().info(player.getName() + " FLIGHT VIOLATION DETECTED!");
+                        " blocks/s > Max: " + String.format("%.2f", maxVerticalSpeed * 1.5) +
+                        " blocks/s" + (player.isGliding() ? " (Elytra)" : "");
+                plugin.getLogger().warning(player.getName() + " FLIGHT VIOLATION DETECTED! " + flightDetails);
             } else {
                 flightViolation = false;
                 flightDetails = "";
@@ -174,7 +193,7 @@ public class MovementProcessor {
         // Handle violations on main thread if needed
         if (speedViolation || flightViolation) {
             final String speedDetails = "Speed: " + String.format("%.2f", horizontalSpeed) + 
-                    " > Max: " + String.format("%.2f", maxHorizontalSpeed);
+                    " blocks/s > Max: " + String.format("%.2f", maxHorizontalSpeed) + " blocks/s";
             
             // Run teleport and violation reporting on the main thread
             new BukkitRunnable() {
@@ -193,13 +212,19 @@ public class MovementProcessor {
                         }
                         
                         // Correct player position
-                        plugin.getLogger().info("Teleporting " + player.getName() + " back to " + 
-                                String.format("(%.2f, %.2f, %.2f)", from.getX(), from.getY(), from.getZ()));
+                        plugin.getLogger().info("Teleporting " + player.getName() + " back to " + formatLocation(from));
                         player.teleport(from);
                     }
                 }
             }.runTask(plugin);
         }
+    }
+    
+    /**
+     * Format location for readable logging
+     */
+    private String formatLocation(Location loc) {
+        return String.format("(%.2f, %.2f, %.2f)", loc.getX(), loc.getY(), loc.getZ());
     }
     
     /**
