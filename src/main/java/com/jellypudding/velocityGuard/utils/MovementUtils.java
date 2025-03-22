@@ -117,6 +117,27 @@ public class MovementUtils {
     }
     
     /**
+     * Checks if the player was near ground at a previous location
+     * 
+     * @param player The player
+     * @param prevLocation The location to check
+     * @return True if the location is near ground
+     */
+    public static boolean wasNearGround(Player player, Location prevLocation) {
+        // Check a small area below the previous location
+        for (double x = -0.3; x <= 0.3; x += 0.3) {
+            for (double z = -0.3; z <= 0.3; z += 0.3) {
+                Block block = prevLocation.clone().add(x, -0.5, z).getBlock();
+                if (!PASSABLE_BLOCKS.contains(block.getType())) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
      * Checks if the player is in a liquid (water or lava)
      * 
      * @param player The player to check

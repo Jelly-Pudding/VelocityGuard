@@ -78,11 +78,20 @@ public class PacketListener {
                             packetName.contains("Move") || 
                             packetName.contains("Look")) {
                             
-                            plugin.getLogger().info("VelocityGuard: Movement packet detected for " + player.getName() + ": " + packetName);
+                            // Only log occasionally
+                            boolean shouldLog = Math.random() < 0.05;
+                            
+                            if (shouldLog) {
+                                plugin.getLogger().info("VelocityGuard: Movement packet detected for " + player.getName() + ": " + packetName);
+                            }
                             
                             // Get current location as "from"
                             Location from = player.getLocation();
                             Location to = null;
+                            
+                            if (shouldLog) {
+                                plugin.getLogger().info("Packet handler triggered for " + player.getName() + ": " + packetName);
+                            }
                             
                             try {
                                 // Try to extract position using different common field names
@@ -96,8 +105,10 @@ public class PacketListener {
                                     String fieldName = field.getName();
                                     Class<?> fieldType = field.getType();
                                     
-                                    // Log field for debugging
-                                    plugin.getLogger().info("Field: " + fieldName + " (" + fieldType.getName() + ")");
+                                    // Only log fields if we're actively debugging
+                                    if (shouldLog) {
+                                        plugin.getLogger().info("Field: " + fieldName + " (" + fieldType.getName() + ")");
+                                    }
                                     
                                     // Check if this is a position field
                                     if (fieldType == double.class) {
@@ -124,10 +135,12 @@ public class PacketListener {
                                     to = new Location(player.getWorld(), x, y, z, yaw, pitch);
                                     
                                     // Log the movement
-                                    plugin.getLogger().info("VelocityGuard: " + player.getName() + " movement: " + 
-                                        String.format("(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)", 
-                                        from.getX(), from.getY(), from.getZ(), 
-                                        to.getX(), to.getY(), to.getZ()));
+                                    if (shouldLog) {
+                                        plugin.getLogger().info("VelocityGuard: " + player.getName() + " movement from packet: " + 
+                                            String.format("(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)", 
+                                            from.getX(), from.getY(), from.getZ(), 
+                                            to.getX(), to.getY(), to.getZ()));
+                                    }
                                     
                                     // Queue the movement for async processing
                                     plugin.getMovementProcessor().queueMovement(player, from, to);
