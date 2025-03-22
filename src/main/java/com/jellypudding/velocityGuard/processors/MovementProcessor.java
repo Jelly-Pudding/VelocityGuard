@@ -2,6 +2,7 @@ package com.jellypudding.velocityGuard.processors;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -11,6 +12,7 @@ import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.HashMap;
 
 public class MovementProcessor {
     
@@ -78,12 +80,33 @@ public class MovementProcessor {
             }
         }
         
+        // Track players with rapid movement sequences
+        Map<UUID, Integer> movementsPerPlayer = new HashMap<>();
+        
+        // First pass: count movements per player and detect potential speeders
+        for (MovementData data : movementQueue) {
+            UUID playerId = data.getPlayerUUID();
+            movementsPerPlayer.merge(playerId, 1, Integer::sum);
+        }
+        
         // Process all queued movements
         MovementData data;
         while ((data = movementQueue.poll()) != null) {
-            // Submit to thread pool for processing
+            // Get player's movement count in this batch
+            int playerMovements = movementsPerPlayer.getOrDefault(data.getPlayerUUID(), 0);
+            
+            // Prioritize processing for players with many queued movements or recent violations
             final MovementData finalData = data;
-            plugin.getCheckExecutor().execute(() -> checkMovement(finalData));
+            if (playerMovements > 5 || plugin.getViolationManager().getViolationLevel(data.getPlayerUUID()) > 0) {
+                // Process with higher priority for suspicious players
+                plugin.getCheckExecutor().execute(() -> {
+                    // Mark this as a higher priority check
+                    checkMovement(finalData, true);
+                });
+            } else {
+                // Normal priority for other players
+                plugin.getCheckExecutor().execute(() -> checkMovement(finalData, false));
+            }
         }
     }
     
@@ -107,8 +130,11 @@ public class MovementProcessor {
     
     /**
      * Performs the actual movement check asynchronously
+     * 
+     * @param data Movement data to check
+     * @param highPriority Whether this check should be more thorough/restrictive
      */
-    private void checkMovement(MovementData data) {
+    private void checkMovement(MovementData data, boolean highPriority) {
         UUID playerUUID = data.getPlayerUUID();
         Player player = plugin.getServer().getPlayer(playerUUID);
         
@@ -119,6 +145,21 @@ public class MovementProcessor {
         Location to = data.getTo();
         long currentTime = data.getTimestamp();
 
+        // Calculate time delta in milliseconds
+        long timeDelta = currentTime - lastMoveTime.getOrDefault(playerUUID, currentTime);
+        if (timeDelta <= 0) timeDelta = 50; // Default to 50ms if time delta is invalid
+        
+        // ALWAYS check for extreme speed - this method handles teleporting if needed
+        boolean extremeViolation = handleExtremeSpeedCheck(player, from, to, timeDelta);
+        if (extremeViolation) {
+            // If we found an extreme violation, update last location but don't need further checks
+            lastLocations.put(playerUUID, from); // Keep the previous location
+            lastMoveTime.put(playerUUID, currentTime);
+            return;
+        }
+        
+        // Continue with regular checks only if this wasn't an extreme speed violation
+        
         // Additional teleportation check - if distance is suspicious
         double distanceSquared = from.distanceSquared(to);
         if (distanceSquared > 100) { // 10 blocks distance squared
@@ -131,9 +172,11 @@ public class MovementProcessor {
             return;
         }
         
-        // Calculate time delta in milliseconds
-        long timeDelta = currentTime - lastMoveTime.getOrDefault(playerUUID, currentTime);
-        if (timeDelta <= 0) timeDelta = 50; // Default to 50ms if time delta is invalid
+        // For high priority checks, use a shorter time delta to be more restrictive
+        // This effectively increases the calculated speed for players who may be cheating
+        if (highPriority && timeDelta > 50) {
+            timeDelta = Math.max(30, timeDelta / 2); // More restrictive time delta for suspicious players
+        }
         
         // Only log detailed movement for flagged movements to reduce spam
         boolean isDetailedLogging = false;
@@ -141,6 +184,11 @@ public class MovementProcessor {
         // Apply latency compensation
         boolean compensateLag = plugin.getConfigManager().isLagCompensationEnabled();
         double lagFactor = compensateLag ? Math.max(1.0, 1.0 + (player.getPing() / 1000.0)) : 1.0;
+        
+        // For high priority checks, reduce lag compensation to be more strict
+        if (highPriority) {
+            lagFactor = Math.min(lagFactor, 1.2); // Cap lag factor for suspicious players
+        }
         
         // Calculate horizontal speed in blocks per second
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
@@ -250,7 +298,7 @@ public class MovementProcessor {
             final String speedDetails = "Speed: " + String.format("%.2f", horizontalSpeed) + 
                     " blocks/s > Max: " + String.format("%.2f", maxHorizontalSpeed) + " blocks/s";
             
-            // Always update the last known legitimate position for future checks
+            // Always use the last known legitimate position for teleporting back
             final Location teleportTo = from.clone();
             
             // Run teleport and violation reporting on the main thread
@@ -269,20 +317,23 @@ public class MovementProcessor {
                             plugin.getViolationManager().addViolation(player, "FlightHack", flightDetails);
                         }
                         
-                        // IMPORTANT: We don't update the lastLocations map with the new location
-                        // This keeps the player from advancing when cheating
-                        lastLocations.put(playerUUID, teleportTo);
-                        
-                        // Correct player position
-                        plugin.getLogger().info("Resetting " + player.getName() + " position from " + 
-                                formatLocation(player.getLocation()) + " back to " + formatLocation(teleportTo) +
-                                " (gain prevented: " + String.format("%.2f", player.getLocation().distance(teleportTo)) + " blocks)");
-                        player.teleport(teleportTo);
+                        // Only correct position for this specific violation, not future movements
+                        // This way the player isn't punished after they stop cheating
+                        double currentDistance = player.getLocation().distance(teleportTo);
+                        if (currentDistance > 0.1) { // Only teleport if they've actually moved away
+                            plugin.getLogger().info("Resetting " + player.getName() + " position from " + 
+                                    formatLocation(player.getLocation()) + " back to " + formatLocation(teleportTo) +
+                                    " (gain prevented: " + String.format("%.2f", currentDistance) + " blocks)");
+                            player.teleport(teleportTo);
+                        }
                     }
                 }
             }.runTask(plugin);
             
-            // Don't update the current position since we're sending them back
+            // Update the last location map with the current legitimate position
+            // This way, future non-cheating movements won't be compared against old positions
+            lastLocations.put(playerUUID, teleportTo);
+            
             return;
         }
         
@@ -372,5 +423,99 @@ public class MovementProcessor {
                 " (prevented " + String.format("%.2f", distance) + " blocks of movement)");
         
         return true;
+    }
+
+    /**
+     * Gets the last known location for a player
+     * @param playerUUID The player's UUID
+     * @return The last known valid location, or null if none exists
+     */
+    public Location getLastKnownLocation(UUID playerUUID) {
+        return lastLocations.get(playerUUID);
+    }
+
+    /**
+     * Gets the timestamp of when the player last moved
+     * @param playerUUID The player's UUID
+     * @return The timestamp in milliseconds, or 0 if no record exists
+     */
+    public long getLastMoveTime(UUID playerUUID) {
+        Long time = lastMoveTime.get(playerUUID);
+        return time != null ? time : 0;
+    }
+
+    /**
+     * Handles an extreme speed check independently of violations
+     * Only resets position if the CURRENT movement is cheating
+     * @param player The player
+     * @param from Current location 
+     * @param to Destination location
+     * @param timeDelta Time difference in ms
+     * @return true if cheating was detected
+     */
+    public boolean handleExtremeSpeedCheck(Player player, Location from, Location to, long timeDelta) {
+        // Calculate horizontal distance
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        double horizontalDistance = Math.sqrt(dx*dx + dz*dz);
+        
+        // Skip tiny movements
+        if (horizontalDistance < 0.05) return false;
+        
+        // Calculate speed in blocks per second
+        double speed = (horizontalDistance / Math.max(50, timeDelta)) * 1000.0;
+        
+        // Use a stricter limit for players with existing violations
+        UUID playerId = player.getUniqueId();
+        int violations = plugin.getViolationManager().getViolationLevel(playerId);
+        
+        // Base speed limit that no player should exceed
+        double speedLimit = 10.0; // 10 blocks/sec is very fast
+        
+        // For players with violations, use stricter limits
+        if (violations > 0) {
+            // The more violations, the stricter the limit
+            speedLimit = Math.max(7.0, 10.0 - (violations * 0.5));
+        }
+        
+        if (speed > speedLimit) {
+            // This is a current, active speed hack - teleport back immediately
+            plugin.getLogger().warning("Speed hack detected for " + player.getName() + 
+                    " - " + String.format("%.2f", speed) + " blocks/s (limit: " + 
+                    String.format("%.1f", speedLimit) + ")");
+            
+            // Teleport back to last known good position safely on main thread
+            safelyTeleportPlayer(player, from);
+            
+            // Add a violation
+            plugin.getViolationManager().addViolation(player, "Speed", 
+                    "Moving at " + String.format("%.2f", speed) + " blocks/s");
+            
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Safely teleport a player on the main thread
+     */
+    private void safelyTeleportPlayer(Player player, Location location) {
+        // If already on main thread, teleport immediately
+        if (Bukkit.isPrimaryThread()) {
+            player.teleport(location);
+            player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        } else {
+            // Schedule on main thread
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline()) {
+                        player.teleport(location);
+                        player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                    }
+                }
+            }.runTask(plugin);
+        }
     }
 } 

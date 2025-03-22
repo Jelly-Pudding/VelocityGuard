@@ -16,7 +16,7 @@ public class ViolationManager {
     private final Map<UUID, Long> lastViolationTime;
     
     // The time in milliseconds after which violations start to decay
-    private static final long VIOLATION_DECAY_TIME = 10000; // 10 seconds
+    private static final long VIOLATION_DECAY_TIME = 500; // 0.5 seconds - extremely fast decay to avoid punishing after they stop
     
     public ViolationManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -101,12 +101,23 @@ public class ViolationManager {
                     if (currentTime - lastViolation > VIOLATION_DECAY_TIME) {
                         int currentLevel = violationLevels.get(playerUUID);
                         if (currentLevel > 0) {
-                            violationLevels.put(playerUUID, currentLevel - 1);
+                            // Decay at a faster rate - remove up to 5 violations at once for faster clearing
+                            int decayAmount = Math.min(currentLevel, 5);
+                            int newLevel = currentLevel - decayAmount;
+                            
+                            if (newLevel <= 0) {
+                                // Remove completely if they have no more violations
+                                violationLevels.remove(playerUUID);
+                                lastViolationTime.remove(playerUUID);
+                                plugin.getLogger().info("Player violations cleared");
+                            } else {
+                                violationLevels.put(playerUUID, newLevel);
+                            }
                         }
                     }
                 }
             }
-        }.runTaskTimer(plugin, 20L, 20L); // Run every second
+        }.runTaskTimer(plugin, 8L, 8L); // Run slightly faster (every 8 ticks = ~400ms)
     }
 
     /**
@@ -135,5 +146,45 @@ public class ViolationManager {
      */
     public int getViolations(UUID playerId) {
         return violationLevels.getOrDefault(playerId, 0);
+    }
+
+    /**
+     * Decreases violation count for a player
+     * 
+     * @param playerUUID Player's UUID
+     * @param amount Amount to decrease by (default 1)
+     */
+    public void decreaseViolations(UUID playerUUID, int amount) {
+        if (!violationLevels.containsKey(playerUUID)) return;
+        
+        int currentViolations = violationLevels.get(playerUUID);
+        int newViolations = Math.max(0, currentViolations - amount);
+        
+        if (newViolations <= 0) {
+            // Remove the player from the violations map if they have no violations
+            violationLevels.remove(playerUUID);
+            plugin.getLogger().info("Player " + playerUUID + " is no longer flagged for violations");
+        } else {
+            violationLevels.put(playerUUID, newViolations);
+        }
+    }
+
+    /**
+     * Decreases violation count for a player by 1
+     * 
+     * @param playerUUID Player's UUID
+     */
+    public void decreaseViolations(UUID playerUUID) {
+        decreaseViolations(playerUUID, 1);
+    }
+
+    /**
+     * Add a violation for a player
+     *
+     * @param playerUUID Player's UUID
+     */
+    public void addViolation(UUID playerUUID) {
+        int currentViolations = violationLevels.getOrDefault(playerUUID, 0);
+        violationLevels.put(playerUUID, currentViolations + 1);
     }
 } 

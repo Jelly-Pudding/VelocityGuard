@@ -55,11 +55,11 @@ public final class VelocityGuard extends JavaPlugin {
         
         // Start the queue processing task (runs every tick)
         this.processQueueTask = new ProcessQueueTask(this);
-        this.processQueueTask.runTaskTimer(this, 1L, 1L);
+        this.processQueueTask.runTaskTimer(this, 1L, 1L); // Run every tick (50ms) for maximum responsiveness
         
-        // Start the position reset task (5 ticks = 250ms)
+        // Monitor task to check for speed violations and ensure cheaters don't make progress
         this.resetPositionTask = new ResetPositionTask(this, 3);
-        this.resetPositionTask.runTaskTimer(this, 5L, 5L);
+        this.resetPositionTask.runTaskTimer(this, 3L, 3L); // Run every 150ms - fast enough to catch cheats
         
         // Register event listeners - this provides backup detection
         PlayerConnectionListener connectionListener = new PlayerConnectionListener(this);
