@@ -23,3 +23,12 @@ settings:
   # Whether to compensate for player latency in movement checks
   # Strongly recommended to keep this enabled
   lag-compensation: true 
+  
+  # Enable debug mode for more detailed logging
+  # Set to true during development or when troubleshooting issues
+  debug-mode: true
+  
+  # Violation threshold before taking action
+  # Lower values are more strict, higher values are more lenient
+  # Recommended: 3-5 for normal gameplay
+  violation-threshold: 3 
