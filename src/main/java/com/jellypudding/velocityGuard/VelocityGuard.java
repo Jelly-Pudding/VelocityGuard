@@ -6,10 +6,12 @@ import com.jellypudding.velocityGuard.managers.ConfigManager;
 import com.jellypudding.velocityGuard.managers.ViolationManager;
 import com.jellypudding.velocityGuard.processors.MovementProcessor;
 import com.jellypudding.velocityGuard.tasks.ProcessQueueTask;
+import com.jellypudding.velocityGuard.tasks.ResetPositionTask;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public final class VelocityGuard extends JavaPlugin {
     
@@ -18,9 +20,14 @@ public final class VelocityGuard extends JavaPlugin {
     private MovementProcessor movementProcessor;
     private PacketListener packetListener;
     private ProcessQueueTask processQueueTask;
+    private ResetPositionTask resetPositionTask;
     
     // Thread pool for handling checks asynchronously
     private ExecutorService checkExecutor;
+    
+    // Packet listener status
+    private boolean packetListenerWorking = false;
+    private boolean debugMode = false;
     
     @Override
     public void onEnable() {
@@ -30,6 +37,10 @@ public final class VelocityGuard extends JavaPlugin {
         // Initialize managers
         this.configManager = new ConfigManager(this);
         this.violationManager = new ViolationManager(this);
+        
+        // Enable debug mode for troubleshooting 1.21.4 compatibility
+        setDebugMode(true);
+        getLogger().info("Debug mode enabled for 1.21.4 compatibility troubleshooting");
         
         // Create the thread pool with a fixed number of threads
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
@@ -46,14 +57,45 @@ public final class VelocityGuard extends JavaPlugin {
         this.processQueueTask = new ProcessQueueTask(this);
         this.processQueueTask.runTaskTimer(this, 1L, 1L);
         
-        // Register event listeners
-        getServer().getPluginManager().registerEvents(new PlayerConnectionListener(this), this);
+        // Start the position reset task (5 ticks = 250ms)
+        this.resetPositionTask = new ResetPositionTask(this, 3);
+        this.resetPositionTask.runTaskTimer(this, 5L, 5L);
+        
+        // Register event listeners - this provides backup detection
+        PlayerConnectionListener connectionListener = new PlayerConnectionListener(this);
+        getServer().getPluginManager().registerEvents(connectionListener, this);
         
         // Install packet handlers
         packetListener.inject();
         
+        // Check packet listener status after 10 seconds
+        getServer().getScheduler().runTaskLater(this, this::checkPacketListenerStatus, 20 * 10);
+        
         getLogger().info("VelocityGuard has been enabled with asynchronous processing on " + 
                 threads + " threads. Now monitoring for speed and flight hacks.");
+    }
+    
+    /**
+     * Check if packet listener is working and update status
+     */
+    private void checkPacketListenerStatus() {
+        int successfulPackets = packetListener.getSuccessfulPacketsCount();
+        int failedPackets = packetListener.getFailedPacketsCount();
+        
+        if (successfulPackets > 0) {
+            packetListenerWorking = true;
+            getLogger().info("Packet listener is working correctly! (" + successfulPackets + " packets processed)");
+        } else {
+            packetListenerWorking = false;
+            getLogger().severe("!!! CRITICAL ERROR !!!");
+            getLogger().severe("Packet listener is not working on this server version (" + getServer().getVersion() + ")");
+            getLogger().severe("VelocityGuard requires working packet listeners to function!");
+            getLogger().severe("The plugin will NOT function without packet listeners - please update or contact the author");
+            getLogger().severe("Disabling VelocityGuard due to incompatibility");
+            
+            // Gracefully disable the plugin
+            getServer().getPluginManager().disablePlugin(this);
+        }
     }
 
     @Override
@@ -68,9 +110,21 @@ public final class VelocityGuard extends JavaPlugin {
             processQueueTask.cancel();
         }
         
-        // Shutdown thread pool
+        if (resetPositionTask != null) {
+            resetPositionTask.cancel();
+        }
+        
+        // Shutdown thread pool gracefully
         if (checkExecutor != null) {
             checkExecutor.shutdown();
+            try {
+                if (!checkExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    getLogger().warning("Thread pool didn't shut down cleanly, forcing shutdown");
+                    checkExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                checkExecutor.shutdownNow();
+            }
         }
         
         getLogger().info("VelocityGuard has been disabled.");
@@ -94,5 +148,55 @@ public final class VelocityGuard extends JavaPlugin {
 
     public PacketListener getPacketListener() {
         return packetListener;
+    }
+    
+    /**
+     * @return Whether the packet listener is working correctly
+     */
+    public boolean isPacketListenerWorking() {
+        return packetListenerWorking;
+    }
+
+    /**
+     * Update the packet listener working status based on diagnostics
+     * 
+     * @param status true if packet listener is working
+     */
+    public void setPacketListenerWorking(boolean status) {
+        if (this.packetListenerWorking != status) {
+            if (status) {
+                getLogger().info("Packet listener is now working correctly");
+            } else {
+                getLogger().severe("!!! CRITICAL ERROR !!!");
+                getLogger().severe("Packet listener has stopped working!");
+                getLogger().severe("VelocityGuard requires working packet listeners to function");
+                getLogger().severe("Disabling VelocityGuard due to packet listener failure");
+                
+                // Gracefully disable the plugin
+                getServer().getScheduler().runTask(this, () -> {
+                    getServer().getPluginManager().disablePlugin(this);
+                });
+            }
+        }
+        this.packetListenerWorking = status;
+    }
+
+    /**
+     * Returns whether debug mode is enabled
+     */
+    public boolean isDebugEnabled() {
+        return debugMode;
+    }
+
+    /**
+     * Enable or disable debug mode
+     */
+    public void setDebugMode(boolean enabled) {
+        this.debugMode = enabled;
+        getLogger().info("Debug mode " + (enabled ? "enabled" : "disabled"));
+        
+        if (enabled) {
+            getLogger().info("Detailed debug information will be logged");
+        }
     }
 }

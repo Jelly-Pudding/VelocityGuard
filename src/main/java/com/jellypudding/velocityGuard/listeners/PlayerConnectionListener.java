@@ -7,7 +7,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 
@@ -16,7 +15,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Handles player connection events
+ * Handles player connection events only (join, quit, teleport)
+ * All movement detection is done through packet listeners
  */
 public class PlayerConnectionListener implements Listener {
     
@@ -39,6 +39,8 @@ public class PlayerConnectionListener implements Listener {
         
         // Add packet listener to the player
         plugin.getPacketListener().injectPlayer(player);
+        
+        plugin.getLogger().info("VelocityGuard now tracking " + player.getName());
     }
     
     @EventHandler
@@ -51,6 +53,8 @@ public class PlayerConnectionListener implements Listener {
         // Remove from movement processor and teleport tracking
         plugin.getMovementProcessor().unregisterPlayer(player.getUniqueId());
         lastTeleportTimes.remove(player.getUniqueId());
+        
+        plugin.getLogger().info("VelocityGuard stopped tracking " + player.getName());
     }
     
     /**
@@ -74,44 +78,6 @@ public class PlayerConnectionListener implements Listener {
         
         // Update player's last known position without checking
         plugin.getMovementProcessor().registerPlayer(player);
-    }
-    
-    /**
-     * Backup event handler for movement if packet handling fails
-     * This runs at the MONITOR priority to ensure it doesn't interfere
-     * with other plugins that might cancel the event.
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        // Skip if event is cancelled or player never actually moved
-        if (event.isCancelled()) return;
-        
-        Player player = event.getPlayer();
-        UUID playerId = player.getUniqueId();
-        
-        // Skip movement check if player teleported recently
-        long currentTime = System.currentTimeMillis();
-        long lastTeleportTime = lastTeleportTimes.getOrDefault(playerId, 0L);
-        
-        if (currentTime - lastTeleportTime < TELEPORT_COOLDOWN_MS) {
-            // Just update location without checking if within cooldown period
-            plugin.getMovementProcessor().registerPlayer(player);
-            return;
-        }
-        
-        Location from = event.getFrom();
-        Location to = event.getTo();
-        
-        // Skip if locations are the same
-        if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
-            return;
-        }
-        
-
-        plugin.getLogger().info("PlayerMoveEvent backup handler triggered for " + player.getName());
-        
-        // Queue movement for processing
-        plugin.getMovementProcessor().queueMovement(player, from, to);
     }
     
     private String formatLocation(Location loc) {

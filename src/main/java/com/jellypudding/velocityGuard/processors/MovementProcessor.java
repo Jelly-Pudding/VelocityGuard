@@ -245,14 +245,13 @@ public class MovementProcessor {
             flightDetails = "";
         }
         
-        // Update last location and time
-        lastLocations.put(playerUUID, to);
-        lastMoveTime.put(playerUUID, currentTime);
-        
         // Handle violations on main thread if needed
         if (speedViolation || flightViolation) {
             final String speedDetails = "Speed: " + String.format("%.2f", horizontalSpeed) + 
                     " blocks/s > Max: " + String.format("%.2f", maxHorizontalSpeed) + " blocks/s";
+            
+            // Always update the last known legitimate position for future checks
+            final Location teleportTo = from.clone();
             
             // Run teleport and violation reporting on the main thread
             new BukkitRunnable() {
@@ -270,20 +269,33 @@ public class MovementProcessor {
                             plugin.getViolationManager().addViolation(player, "FlightHack", flightDetails);
                         }
                         
+                        // IMPORTANT: We don't update the lastLocations map with the new location
+                        // This keeps the player from advancing when cheating
+                        lastLocations.put(playerUUID, teleportTo);
+                        
                         // Correct player position
-                        plugin.getLogger().info("Teleporting " + player.getName() + " back to " + formatLocation(from));
-                        player.teleport(from);
+                        plugin.getLogger().info("Resetting " + player.getName() + " position from " + 
+                                formatLocation(player.getLocation()) + " back to " + formatLocation(teleportTo) +
+                                " (gain prevented: " + String.format("%.2f", player.getLocation().distance(teleportTo)) + " blocks)");
+                        player.teleport(teleportTo);
                     }
                 }
             }.runTask(plugin);
+            
+            // Don't update the current position since we're sending them back
+            return;
         }
+        
+        // Only update last location and time if no violations occurred
+        lastLocations.put(playerUUID, to);
+        lastMoveTime.put(playerUUID, currentTime);
     }
     
     /**
      * Format location for readable logging
      */
     private String formatLocation(Location loc) {
-        return String.format("(%.2f, %.2f, %.2f)", loc.getX(), loc.getY(), loc.getZ());
+        return String.format("(%.1f, %.1f, %.1f)", loc.getX(), loc.getY(), loc.getZ());
     }
     
     /**
@@ -317,5 +329,48 @@ public class MovementProcessor {
         public long getTimestamp() {
             return timestamp;
         }
+    }
+    
+    /**
+     * Resets a player's position to their last valid location
+     * This is called both during movement checks when violations are detected
+     * and periodically by the ResetPositionTask for players with multiple violations.
+     *
+     * @param player The player to reset
+     * @return true if player was teleported, false if not (no valid last position or player already at last position)
+     */
+    public boolean resetPlayerPosition(Player player) {
+        if (player == null || !player.isOnline()) {
+            return false;
+        }
+        
+        UUID playerId = player.getUniqueId();
+        Location lastLocation = lastLocations.get(playerId);
+        
+        if (lastLocation == null) {
+            return false;
+        }
+        
+        Location currentLocation = player.getLocation();
+        
+        // Skip if player is already at or very close to the last valid location
+        double distanceSquared = currentLocation.distanceSquared(lastLocation);
+        if (distanceSquared < 0.01) { // Less than 0.1 blocks distance
+            return false;
+        }
+        
+        // Calculate distance prevented by teleporting back
+        double distance = Math.sqrt(distanceSquared);
+        
+        // Teleport player back to their last valid position
+        player.teleport(lastLocation);
+        
+        // Log the reset with detailed information
+        plugin.getLogger().warning("Reset position for " + player.getName() + 
+                " from " + formatLocation(currentLocation) + 
+                " to " + formatLocation(lastLocation) + 
+                " (prevented " + String.format("%.2f", distance) + " blocks of movement)");
+        
+        return true;
     }
 } 
