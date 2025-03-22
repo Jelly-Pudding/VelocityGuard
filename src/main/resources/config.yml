@@ -4,14 +4,22 @@
 # Check settings
 checks:
   speed:
-    # Maximum horizontal speed in blocks per tick (default: 0.6)
-    max-horizontal-speed: 0.6
+    # Maximum horizontal speed in blocks per SECOND (not per tick)
+    # Default vanilla walking speed: ~4.3 blocks/s
+    # Default vanilla sprinting speed: ~5.6 blocks/s
+    # Sprint-jumping can reach speeds of ~9-10 blocks/s temporarily
+    # Recommended setting: 10.0 to allow for normal sprint-jumping with a buffer
+    max-horizontal-speed: 10.0
   
   flight:
-    # Maximum vertical speed in blocks per tick (default: 0.7)
-    max-vertical-speed: 0.7
+    # Maximum vertical speed in blocks per SECOND (not per tick)
+    # Normal jumping speed: ~9.0 blocks/s at initial jump
+    # Normal falling speed: up to 20 blocks/s
+    # Recommended setting: 9.0 for normal gameplay with jumps
+    max-vertical-speed: 9.0
 
 # General settings
 settings:
   # Whether to compensate for player latency in movement checks
+  # Strongly recommended to keep this enabled
   lag-compensation: true 

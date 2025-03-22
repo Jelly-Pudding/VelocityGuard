@@ -49,6 +49,16 @@ public class MovementProcessor {
             lastLocations.put(player.getUniqueId(), to);
             return;
         }
+
+        // Check if this is likely a teleport by measuring the distance
+        double distance = from.distance(to);
+        if (distance > 20) { // If player moved more than 20 blocks instantly, it's likely a teleport
+            plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
+            // Just update the location without checking
+            lastLocations.put(player.getUniqueId(), to);
+            lastMoveTime.put(player.getUniqueId(), System.currentTimeMillis());
+            return;
+        }
         
         // Add to queue for processing
         movementQueue.add(new MovementData(player.getUniqueId(), from, to, System.currentTimeMillis()));
@@ -62,7 +72,10 @@ public class MovementProcessor {
         
         int queueSize = movementQueue.size();
         if (queueSize > 0) {
-            plugin.getLogger().info("VelocityGuard: Processing " + queueSize + " queued movements");
+            // Only log if there are more than 3 movements to avoid spam
+            if (queueSize > 3) {
+                plugin.getLogger().info("VelocityGuard: Processing " + queueSize + " queued movements");
+            }
         }
         
         // Process all queued movements
@@ -105,14 +118,25 @@ public class MovementProcessor {
         Location from = lastLocations.get(playerUUID);
         Location to = data.getTo();
         long currentTime = data.getTimestamp();
+
+        // Additional teleportation check - if distance is suspicious
+        double distanceSquared = from.distanceSquared(to);
+        if (distanceSquared > 100) { // 10 blocks distance squared
+            plugin.getLogger().info("Skipping check for " + player.getName() + " - likely teleport (distance: " + 
+                    String.format("%.2f", Math.sqrt(distanceSquared)) + ")");
+            
+            // Update last location and time without checking
+            lastLocations.put(playerUUID, to);
+            lastMoveTime.put(playerUUID, currentTime);
+            return;
+        }
         
         // Calculate time delta in milliseconds
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerUUID, currentTime);
         if (timeDelta <= 0) timeDelta = 50; // Default to 50ms if time delta is invalid
         
-        // Debug log that we're checking movement
-        plugin.getLogger().info("Checking movement for " + player.getName() + 
-                " from " + formatLocation(from) + " to " + formatLocation(to));
+        // Only log detailed movement for flagged movements to reduce spam
+        boolean isDetailedLogging = false;
         
         // Apply latency compensation
         boolean compensateLag = plugin.getConfigManager().isLagCompensationEnabled();
@@ -125,9 +149,19 @@ public class MovementProcessor {
         double maxHorizontalSpeed = MovementUtils.getMaxHorizontalSpeed(player, 
                 plugin.getConfigManager().getMaxHorizontalSpeed()) * lagFactor;
         
-        // Debug log the speed values
-        plugin.getLogger().info(player.getName() + " speed check: current=" + String.format("%.2f", horizontalSpeed) + 
-                " blocks/s, max=" + String.format("%.2f", maxHorizontalSpeed) + " blocks/s");
+        // SPECIAL CASE: Check if player is sprint-jumping
+        // The combination of sprinting and jumping can temporarily produce very high speeds
+        boolean isJumping = to.getY() > from.getY() && !player.isFlying();
+        boolean isNearJumpStart = MovementUtils.wasNearGround(player, from);
+        
+        // If player is sprint-jumping, allow higher speeds
+        if (player.isSprinting() && isJumping && isNearJumpStart) {
+            maxHorizontalSpeed *= 1.6; // Allow 60% higher speed for sprint-jumps
+            
+            // Debug log for sprint-jumping
+            plugin.getLogger().fine(player.getName() + " detected sprint-jumping, increased max speed to " + 
+                   String.format("%.2f", maxHorizontalSpeed));
+        }
         
         // Adjust for special conditions
         if (MovementUtils.isInLiquid(player)) {
@@ -138,10 +172,17 @@ public class MovementProcessor {
             maxHorizontalSpeed *= 5.0;
         }
         
-        // Check if speed exceeds limit (with a small threshold to reduce false positives)
-        final boolean speedViolation = horizontalSpeed > (maxHorizontalSpeed * 1.05);
+        // Check if speed exceeds limit (with a buffer to reduce false positives)
+        // Add a buffer of 20% to reduce false positives
+        final boolean speedViolation = horizontalSpeed > (maxHorizontalSpeed * 1.2);
         
+        // Only log detailed info if it's a violation or debug mode
         if (speedViolation) {
+            isDetailedLogging = true;
+            plugin.getLogger().info("Checking movement for " + player.getName() + 
+                    " from " + formatLocation(from) + " to " + formatLocation(to));
+            plugin.getLogger().info(player.getName() + " speed check: current=" + String.format("%.2f", horizontalSpeed) + 
+                    " blocks/s, max=" + String.format("%.2f", maxHorizontalSpeed) + " blocks/s");
             plugin.getLogger().warning(player.getName() + " SPEED VIOLATION DETECTED! " + 
                     String.format("%.2f", horizontalSpeed) + " > " + 
                     String.format("%.2f", maxHorizontalSpeed));
@@ -156,25 +197,43 @@ public class MovementProcessor {
             double verticalSpeed = (verticalDistance / timeDelta) * 1000.0;
             double maxVerticalSpeed = plugin.getConfigManager().getMaxVerticalSpeed() * lagFactor;
             
+            // Special handling for jumping - the first part of a jump can have higher velocity
+            // Standard Minecraft jump reaches ~0.42 blocks on the first tick, then gradually falls
+            if (verticalDistance > 0 && verticalDistance < 0.5 && 
+                    (MovementUtils.wasNearGround(player, from) || timeDelta < 100)) {
+                // Initial jump velocity can be higher, allow it
+                maxVerticalSpeed = Math.max(maxVerticalSpeed, 9.0); // Allow higher initial jump
+            }
+            
             // Adjust for falling (negative vertical movement has different physics constraints)
             if (verticalDistance < 0) {
                 // Terminal velocity for falling is higher
                 maxVerticalSpeed = Math.max(maxVerticalSpeed, 20.0); // Typical maximum falling speed
             }
             
-            // Debug log vertical speed
-            plugin.getLogger().info(player.getName() + " vertical speed check: current=" + 
-                    String.format("%.2f", verticalSpeed) + " blocks/s, max=" + 
-                    String.format("%.2f", maxVerticalSpeed * 1.5) + " blocks/s");
-            
+            // Adjust for elytra gliding
             if (player.isGliding()) {
                 maxVerticalSpeed *= 3.0;
             }
             
-            if (Math.abs(verticalSpeed) > Math.abs(maxVerticalSpeed * 1.5)) {
+            // Add a more generous buffer for vertical speed (jumps can vary based on client tick rate)
+            // Use 200% buffer for upward motion, which is most likely to be legitimate jumps
+            double buffer = verticalDistance > 0 ? 2.0 : 1.65;
+            
+            if (Math.abs(verticalSpeed) > Math.abs(maxVerticalSpeed * buffer)) {
+                if (!isDetailedLogging) {
+                    plugin.getLogger().info("Checking movement for " + player.getName() + 
+                        " from " + formatLocation(from) + " to " + formatLocation(to));
+                }
+                
+                isDetailedLogging = true;
+                plugin.getLogger().info(player.getName() + " vertical speed check: current=" + 
+                        String.format("%.2f", verticalSpeed) + " blocks/s, max=" + 
+                        String.format("%.2f", maxVerticalSpeed * buffer) + " blocks/s");
+                
                 flightViolation = true;
                 flightDetails = "Vertical Speed: " + String.format("%.2f", verticalSpeed) + 
-                        " blocks/s > Max: " + String.format("%.2f", maxVerticalSpeed * 1.5) +
+                        " blocks/s > Max: " + String.format("%.2f", maxVerticalSpeed * buffer) +
                         " blocks/s" + (player.isGliding() ? " (Elytra)" : "");
                 plugin.getLogger().warning(player.getName() + " FLIGHT VIOLATION DETECTED! " + flightDetails);
             } else {
