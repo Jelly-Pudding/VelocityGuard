@@ -1,6 +1,7 @@
 package com.jellypudding.velocityGuard.listeners;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -43,43 +44,32 @@ public class PlayerConnectionListener implements Listener {
     }
     
     /**
-     * Backup detection method using Bukkit events
-     * This helps catch cheat clients that bypass the packet system
+     * Backup event handler for movement if packet handling fails
+     * This runs at the MONITOR priority to ensure it doesn't interfere
+     * with other plugins that might cancel the event.
      */
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerMove(PlayerMoveEvent event) {
-        // Skip head rotation only
-        if (event.getFrom().getX() == event.getTo().getX() &&
-            event.getFrom().getY() == event.getTo().getY() &&
-            event.getFrom().getZ() == event.getTo().getZ()) {
+        // Skip if event is cancelled or player never actually moved
+        if (event.isCancelled()) return;
+        
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        
+        // Skip if locations are the same
+        if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return;
         }
         
         Player player = event.getPlayer();
+        plugin.getLogger().fine("PlayerMoveEvent backup handler: " + player.getName() + 
+                " from " + formatLocation(from) + " to " + formatLocation(to));
         
-        // Skip creative/spectator mode
-        if (player.getGameMode().toString().contains("CREATIVE") ||
-            player.getGameMode().toString().contains("SPECTATOR")) {
-            return;
-        }
-        
-        // Calculate distance moved
-        double dx = event.getTo().getX() - event.getFrom().getX();
-        double dz = event.getTo().getZ() - event.getFrom().getZ();
-        double horizontalDistance = Math.sqrt(dx*dx + dz*dz);
-        
-        // Check for fast movement (anything over 5 blocks is almost certainly cheating)
-        if (horizontalDistance > 5.0) {
-            plugin.getLogger().warning("VelocityGuard BACKUP: " + player.getName() + 
-                    " moved " + String.format("%.2f", horizontalDistance) + " blocks horizontally in one tick!");
-            
-            // Cancel the event and teleport back
-            event.setCancelled(true);
-            player.teleport(event.getFrom());
-            
-            // Record violation
-            plugin.getViolationManager().addViolation(player, "SpeedHack", 
-                    "Fast movement: " + String.format("%.2f", horizontalDistance) + " blocks in one tick");
-        }
+        // Queue movement for processing
+        plugin.getMovementProcessor().queueMovement(player, from, to);
+    }
+    
+    private String formatLocation(Location loc) {
+        return String.format("(%.2f, %.2f, %.2f)", loc.getX(), loc.getY(), loc.getZ());
     }
 } 

@@ -39,6 +39,19 @@ public class MovementUtils {
     }
     
     /**
+     * Calculates the horizontal distance between two locations
+     * 
+     * @param from The starting location
+     * @param to The ending location
+     * @return The horizontal distance in blocks
+     */
+    public static double calculateHorizontalDistance(Location from, Location to) {
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+    
+    /**
      * Calculates the vertical speed between two locations
      * 
      * @param from The starting location
