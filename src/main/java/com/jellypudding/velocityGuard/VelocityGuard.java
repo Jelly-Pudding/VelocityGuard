@@ -86,15 +86,11 @@ public final class VelocityGuard extends JavaPlugin {
             packetListenerWorking = true;
             getLogger().info("Packet listener is working correctly! (" + successfulPackets + " packets processed)");
         } else {
+            // Don't disable - just warn
             packetListenerWorking = false;
-            getLogger().severe("!!! CRITICAL ERROR !!!");
-            getLogger().severe("Packet listener is not working on this server version (" + getServer().getVersion() + ")");
-            getLogger().severe("VelocityGuard requires working packet listeners to function!");
-            getLogger().severe("The plugin will NOT function without packet listeners - please update or contact the author");
-            getLogger().severe("Disabling VelocityGuard due to incompatibility");
-            
-            // Gracefully disable the plugin
-            getServer().getPluginManager().disablePlugin(this);
+            getLogger().warning("No packets detected yet - this might be normal if players haven't moved");
+            getLogger().warning("Packet detection on server version: " + getServer().getVersion());
+            getLogger().warning("Plugin will continue to operate normally");
         }
     }
 
@@ -167,15 +163,9 @@ public final class VelocityGuard extends JavaPlugin {
             if (status) {
                 getLogger().info("Packet listener is now working correctly");
             } else {
-                getLogger().severe("!!! CRITICAL ERROR !!!");
-                getLogger().severe("Packet listener has stopped working!");
-                getLogger().severe("VelocityGuard requires working packet listeners to function");
-                getLogger().severe("Disabling VelocityGuard due to packet listener failure");
-                
-                // Gracefully disable the plugin
-                getServer().getScheduler().runTask(this, () -> {
-                    getServer().getPluginManager().disablePlugin(this);
-                });
+                // Just log a warning instead of disabling
+                getLogger().warning("Packet listener reported non-operational status");
+                getLogger().warning("This may be temporary - will continue monitoring");
             }
         }
         this.packetListenerWorking = status;

@@ -40,6 +40,9 @@ public class PacketListener implements Listener {
     private final AtomicInteger successfulPackets = new AtomicInteger(0);
     private final AtomicInteger failedPackets = new AtomicInteger(0);
     
+    // Track whether we're on the first diagnostic check
+    private boolean isFirstDiagnosticCheck = true;
+    
     public PacketListener(VelocityGuard plugin) {
         this.plugin = plugin;
         plugin.getLogger().info("Initializing packet listener for Minecraft 1.21.4 using direct imports");
@@ -103,9 +106,14 @@ public class PacketListener implements Listener {
         
         if (isWorking) {
             plugin.getLogger().info(" - Status: OPERATIONAL - All movement checks running asynchronously");
+            plugin.getLogger().info("Packet listener is now working correctly");
+            
+            // Update the plugin about our status
+            plugin.setPacketListenerWorking(true);
         } else {
-            plugin.getLogger().severe(" - Status: CRITICAL FAILURE - Movement packet interception not working");
-            plugin.getLogger().severe(" - Problem: No movement packets detected");
+            plugin.getLogger().warning(" - Status: WARNING - No movement packets detected yet");
+            plugin.getLogger().warning(" - This could be because no player has moved yet");
+            plugin.getLogger().warning(" - Plugin will continue operating normally");
             
             // Print some debug info about player connections
             if (!playerChannels.isEmpty() && Bukkit.getOnlinePlayers().size() > 0) {
@@ -113,33 +121,23 @@ public class PacketListener implements Listener {
                     Player randomPlayer = Bukkit.getOnlinePlayers().iterator().next();
                     CraftPlayer craftPlayer = (CraftPlayer) randomPlayer;
                     ServerPlayer handle = craftPlayer.getHandle();
-                    plugin.getLogger().severe(" - Player handle class: " + handle.getClass().getName());
-                    plugin.getLogger().severe(" - Connection class: " + handle.connection.getClass().getName());
+                    plugin.getLogger().warning(" - Player handle class: " + handle.getClass().getName());
+                    plugin.getLogger().warning(" - Connection class: " + handle.connection.getClass().getName());
                 } catch (Exception e) {
-                    plugin.getLogger().severe(" - Error debugging player: " + e.getMessage());
+                    plugin.getLogger().warning(" - Error debugging player: " + e.getMessage());
                 }
             }
+            
+            // Don't update the plugin status to false - let it keep running
+            // plugin.setPacketListenerWorking(false);
         }
-        
-        // Update the plugin about our status
-        plugin.setPacketListenerWorking(isWorking);
         
         // Reset counters for next diagnostic interval
         successfulPackets.set(0);
         failedPackets.set(0);
         
-        // Schedule the next diagnostic run if we're working
-        if (isWorking) {
-            Bukkit.getScheduler().runTaskLater(plugin, this::logDiagnostics, 30 * 20); // Run every 30 seconds
-        } else {
-            plugin.getLogger().severe("!!! CRITICAL ERROR !!!");
-            plugin.getLogger().severe("Packet listener is not working on this server version (" + 
-                                      Bukkit.getServer().getVersion() + ")");
-            plugin.getLogger().severe("VelocityGuard requires working packet listeners to function!");
-            plugin.getLogger().severe("The plugin will NOT function without packet listeners - please update or contact the author");
-            plugin.getLogger().severe("Disabling VelocityGuard due to incompatibility");
-            plugin.getServer().getPluginManager().disablePlugin(plugin);
-        }
+        // Schedule the next diagnostic run
+        Bukkit.getScheduler().runTaskLater(plugin, this::logDiagnostics, 30 * 20); // Run every 30 seconds
     }
     
     /**
