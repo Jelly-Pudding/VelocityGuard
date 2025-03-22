@@ -1,0 +1,17 @@
+# VelocityGuard Configuration
+# This plugin helps prevent speedhack and flight hack by cheating clients
+
+# Check settings
+checks:
+  speed:
+    # Maximum horizontal speed in blocks per tick (default: 0.6)
+    max-horizontal-speed: 0.6
+  
+  flight:
+    # Maximum vertical speed in blocks per tick (default: 0.7)
+    max-vertical-speed: 0.7
+
+# General settings
+settings:
+  # Whether to compensate for player latency in movement checks
+  lag-compensation: true 
