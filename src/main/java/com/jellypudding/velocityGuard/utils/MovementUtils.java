@@ -11,18 +11,15 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class MovementUtils {
-    
-    // Cache of blocks that can be passed through
+
     private static final Set<Material> PASSABLE_BLOCKS = new HashSet<>();
     
     static {
-        // Add all explicitly passable blocks
         PASSABLE_BLOCKS.add(Material.AIR);
         PASSABLE_BLOCKS.add(Material.CAVE_AIR);
         PASSABLE_BLOCKS.add(Material.VOID_AIR);
         PASSABLE_BLOCKS.add(Material.WATER);
         PASSABLE_BLOCKS.add(Material.LAVA);
-        // Add more passable blocks as needed
     }
     
     /**

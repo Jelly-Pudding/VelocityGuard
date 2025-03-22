@@ -66,8 +66,11 @@ public class PacketListener implements Listener {
         
         plugin.getLogger().info("Packet listeners registered for " + successCount + " players");
         
-        // Schedule a diagnostic report after 10 seconds
-        Bukkit.getScheduler().runTaskLater(plugin, this::logDiagnostics, 20 * 10);
+        // Schedule the first diagnostic report after 10 seconds
+        // After this initial check, diagnostics will run every 30 seconds
+        Bukkit.getAsyncScheduler().runDelayed(plugin, scheduledTask -> {
+            logDiagnostics();
+        }, 10, java.util.concurrent.TimeUnit.SECONDS);
     }
     
     /**
@@ -95,49 +98,66 @@ public class PacketListener implements Listener {
         
         // Calculate packets per minute
         double packetsPerMinute = successfulPackets.get() / 0.5; // 30 seconds = 0.5 minutes
-        
-        plugin.getLogger().info("VelocityGuard Asynchronous Processing Status:");
-        plugin.getLogger().info(" - Players tracked: " + playersTracked);
-        plugin.getLogger().info(" - Packets processed per minute: " + String.format("%.2f", packetsPerMinute));
-        plugin.getLogger().info(" - Failed packet attempts: " + failedPackets.get());
-        
+
         // Determine if the packet listener is working properly
         boolean isWorking = successfulPackets.get() > 0;
         
-        if (isWorking) {
-            plugin.getLogger().info(" - Status: OPERATIONAL - All movement checks running asynchronously");
-            plugin.getLogger().info("Packet listener is now working correctly");
+        // Check if status has changed for logging purposes
+        boolean statusChanged = isWorking != plugin.isPacketListenerWorking();
+        
+        // Update the plugin about our status
+        plugin.setPacketListenerWorking(isWorking);
+        
+        // Log status information if debug is enabled
+        if (plugin.isDebugEnabled()) {
+            // Always log detailed diagnostics in debug mode
+            plugin.getLogger().info("VelocityGuard Asynchronous Processing Status:");
+            plugin.getLogger().info(" - Players tracked: " + playersTracked);
+            plugin.getLogger().info(" - Packets processed per minute: " + String.format("%.2f", packetsPerMinute));
+            plugin.getLogger().info(" - Failed packet attempts: " + failedPackets.get());
             
-            // Update the plugin about our status
-            plugin.setPacketListenerWorking(true);
-        } else {
-            plugin.getLogger().warning(" - Status: WARNING - No movement packets detected yet");
-            plugin.getLogger().warning(" - This could be because no player has moved yet");
-            plugin.getLogger().warning(" - Plugin will continue operating normally");
-            
-            // Print some debug info about player connections
-            if (!playerChannels.isEmpty() && Bukkit.getOnlinePlayers().size() > 0) {
-                try {
-                    Player randomPlayer = Bukkit.getOnlinePlayers().iterator().next();
-                    CraftPlayer craftPlayer = (CraftPlayer) randomPlayer;
-                    ServerPlayer handle = craftPlayer.getHandle();
-                    plugin.getLogger().warning(" - Player handle class: " + handle.getClass().getName());
-                    plugin.getLogger().warning(" - Connection class: " + handle.connection.getClass().getName());
-                } catch (Exception e) {
-                    plugin.getLogger().warning(" - Error debugging player: " + e.getMessage());
+            // Log operational status
+            if (isWorking) {
+                plugin.getLogger().info(" - Status: OPERATIONAL - All movement checks running asynchronously");
+                
+                // Log status change specifically
+                if (statusChanged) {
+                    plugin.getLogger().info("Packet listener is now working correctly");
+                }
+            } else {
+                plugin.getLogger().warning(" - Status: WARNING - No movement packets detected yet");
+                plugin.getLogger().warning(" - This could be because no player has moved yet");
+                plugin.getLogger().warning(" - Plugin will continue operating normally");
+                
+                // Log status change specifically
+                if (statusChanged) {
+                    plugin.getLogger().warning("Packet listener reported non-operational status");
+                    plugin.getLogger().warning("This may be temporary - will continue monitoring");
+                }
+                
+                // Print some debug info about player connections
+                if (!playerChannels.isEmpty() && Bukkit.getOnlinePlayers().size() > 0) {
+                    try {
+                        Player randomPlayer = Bukkit.getOnlinePlayers().iterator().next();
+                        CraftPlayer craftPlayer = (CraftPlayer) randomPlayer;
+                        ServerPlayer handle = craftPlayer.getHandle();
+                        plugin.getLogger().warning(" - Player handle class: " + handle.getClass().getName());
+                        plugin.getLogger().warning(" - Connection class: " + handle.connection.getClass().getName());
+                    } catch (Exception e) {
+                        plugin.getLogger().warning(" - Error debugging player: " + e.getMessage());
+                    }
                 }
             }
-            
-            // Don't update the plugin status to false - let it keep running
-            // plugin.setPacketListenerWorking(false);
         }
         
         // Reset counters for next diagnostic interval
         successfulPackets.set(0);
         failedPackets.set(0);
         
-        // Schedule the next diagnostic run
-        Bukkit.getScheduler().runTaskLater(plugin, this::logDiagnostics, 30 * 20); // Run every 30 seconds
+        // Schedule the next diagnostic run every 30 seconds
+        Bukkit.getAsyncScheduler().runDelayed(plugin, scheduledTask -> {
+            logDiagnostics();
+        }, 30, java.util.concurrent.TimeUnit.SECONDS);
     }
     
     /**
@@ -208,7 +228,9 @@ public class PacketListener implements Listener {
                         }
                     } catch (Exception e) {
                         failedPackets.incrementAndGet();
-                        plugin.getLogger().warning("Error processing packet: " + e.getMessage());
+                        if (plugin.isDebugEnabled()) {
+                            plugin.getLogger().warning("Error processing packet: " + e.getMessage());
+                        }
                     }
                     
                     // Always pass the packet along
@@ -216,12 +238,16 @@ public class PacketListener implements Listener {
                 }
             });
             
-            plugin.getLogger().info("Successfully injected packet handler for " + player.getName());
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("Successfully injected packet handler for " + player.getName());
+            }
             return true;
             
         } catch (Exception e) {
             plugin.getLogger().severe("Error injecting player " + player.getName() + ": " + e.getMessage());
-            e.printStackTrace();
+            if (plugin.isDebugEnabled()) {
+                e.printStackTrace();
+            }
             return false;
         }
     }
