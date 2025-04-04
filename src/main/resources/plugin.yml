@@ -1,6 +1,6 @@
 name: VelocityGuard
-version: '1.0-SNAPSHOT'
+version: '1.0'
 main: com.jellypudding.velocityGuard.VelocityGuard
 api-version: '1.21'
-description: A lightweight anti-speed and anti-flight cheat client plugin
+description: A simple and lightweight anti-speed and anti-flight cheat plugin
 author: AlphaAlex115
