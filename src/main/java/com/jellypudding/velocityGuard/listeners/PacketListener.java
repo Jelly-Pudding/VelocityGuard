@@ -62,9 +62,7 @@ public class PacketListener implements Listener {
     /**
      * Sets up packet listeners for all online players
      */
-    public void inject() {
-        int successCount = 0;
-        
+    public void inject() {        
         // Register event listener for player join/quit
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         

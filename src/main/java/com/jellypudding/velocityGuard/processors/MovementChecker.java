@@ -3,8 +3,6 @@ package com.jellypudding.velocityGuard.processors;
 import com.jellypudding.velocityGuard.VelocityGuard;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.Location;
-import org.bukkit.Registry;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.potion.PotionEffect;
@@ -16,13 +14,14 @@ import java.util.UUID;
 import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Simple movement checker that directly prevents cheating by freezing players
  * who use speed/fly cheats until they stop cheating.
- * Optimized for minimal main thread impact.
+ * Optimised for minimal main thread impact.
  */
 public class MovementChecker {
     
@@ -46,17 +45,19 @@ public class MovementChecker {
     // Cache whether a player was detected as cheating on their last movement
     private final Map<UUID, Boolean> isCheating = new ConcurrentHashMap<>();
     
-    // Keep track of players with pending teleports to avoid spamming
-    private final Map<UUID, Long> pendingTeleports = new ConcurrentHashMap<>();
+    // Map to track when players can move again after a violation
+    private final Map<UUID, Long> movementBlockedUntil = new ConcurrentHashMap<>();
     
-    // Track when players were frozen and for how long
-    private final Map<UUID, Long> frozenUntil = new ConcurrentHashMap<>();
+    // Lock for operations
+    private final ReentrantLock operationLock = new ReentrantLock();
     
-    // Lock for teleport operations
-    private final ReentrantLock teleportLock = new ReentrantLock();
+    // Track chunk loading caused by player movement
+    private final Map<UUID, Integer> chunksLoadedCounter = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastChunkCountReset = new ConcurrentHashMap<>();
+    private static final long CHUNK_COUNTER_RESET_MS = 1000;
     
-    // Track violation counts for more gradual enforcement
-    private final Map<UUID, AtomicInteger> violationLevels = new ConcurrentHashMap<>();
+    // Thread pool for async chunk checks
+    private final ExecutorService chunkCheckExecutor;
     
     // Constants for pattern detection
     private static final int SPEED_HISTORY_SIZE = 6;
@@ -71,37 +72,18 @@ public class MovementChecker {
     // Teleport cooldown to prevent packet spam
     private static final long TELEPORT_COOLDOWN_MS = 500;
     
-    // Violation thresholds
-    private static final int VIOLATION_THRESHOLD_MINOR = 3;
-    private static final int VIOLATION_THRESHOLD_MAJOR = 8;
-    private static final int VIOLATION_THRESHOLD_SEVERE = 15;
-    private static final int VIOLATION_RESET_SECONDS = 5;
-    
     // Freeze settings
-    private static final long FREEZE_DURATION_MS = 3000; // 3 seconds freeze for first offense
-    private static final long MAX_FREEZE_DURATION_MS = 10000; // 10 seconds max freeze time
-    private static final double FREEZE_DURATION_MULTIPLIER = 1.5; // Each subsequent freeze lasts longer
+    private static final long FREEZE_DURATION_MS = 3000; // 3 seconds freeze 
     
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
         
-        // Start violation decay task (runs every 5 seconds)
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                // This task runs on the main thread but is very lightweight
-                // and only executes every 5 seconds
-                decayViolationLevels();
-            }
-        }.runTaskTimer(plugin, 100L, 100L);
-        
-        // Start frozen player check task (runs every second)
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                checkFrozenPlayers();
-            }
-        }.runTaskTimer(plugin, 20L, 20L);
+        // Create a dedicated thread pool for chunk checking
+        this.chunkCheckExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "VelocityGuard-ChunkCheck");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
     
     /**
@@ -116,11 +98,21 @@ public class MovementChecker {
         if (player == null || from == null || to == null) return true;
         UUID playerId = player.getUniqueId();
         
-        // Check if player is currently frozen
-        Long frozenTime = frozenUntil.get(playerId);
-        if (frozenTime != null && System.currentTimeMillis() < frozenTime) {
-            // Player is frozen, deny movement
-            return false;
+        // SIMPLIFIED APPROACH - Check if player is currently blocked from moving
+        Long blockedUntil = movementBlockedUntil.get(playerId);
+        if (blockedUntil != null && System.currentTimeMillis() < blockedUntil) {
+            if (plugin.isDebugEnabled()) {
+                long remainingTime = (blockedUntil - System.currentTimeMillis()) / 1000;
+                if (remainingTime % 5 == 0) { // Only log every 5 seconds to avoid spam
+                    plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
+                }
+            }
+            return false; // Block all movement
+        }
+        
+        // Check for excessive chunk loading (only if positions are in different chunks)
+        if (from.getChunk() != to.getChunk()) {
+            checkChunkLoading(playerId);
         }
         
         // Skip processing identical locations
@@ -145,12 +137,6 @@ public class MovementChecker {
             lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
             resetSpeedHistory(playerId);
-            return true;
-        }
-        
-        // Don't check if there's a pending teleport cooldown
-        Long lastTeleport = pendingTeleports.get(playerId);
-        if (lastTeleport != null && System.currentTimeMillis() - lastTeleport < TELEPORT_COOLDOWN_MS) {
             return true;
         }
         
@@ -208,34 +194,22 @@ public class MovementChecker {
                                 String.format("%.2f", preTakeoff) + ")");
                     }
                     
-                    // This is likely a speed hack + elytra exploit - severe violation
-                    incrementViolationLevel(playerId, 5); // Major violation
-                    
-                    if (getViolationLevel(playerId) >= VIOLATION_THRESHOLD_SEVERE) {
-                        // Force them off elytra by teleporting and applying freeze
-                        Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-                        teleportPlayerSafely(player, validLoc);
-                        freezePlayer(player, "Suspicious elytra takeoff detected!");
-                        return false;
-                    } else if (shouldTeleportBack(playerId)) {
-                        Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-                        teleportPlayerSafely(player, validLoc);
-                        player.sendMessage("§c[VelocityGuard] §fSuspicious elytra takeoff detected!");
-                        isCheating.put(playerId, true);
+                    // This is likely a speed hack + elytra exploit - take action only for extreme cases
+                    if (horizontalSpeed > ELYTRA_TAKEOFF_MAX_SPEED * 1.5) {
+                        blockPlayerMovement(player, "Suspicious elytra takeoff detected");
                         return false;
                     }
                 }
             } else if (horizontalSpeed > maxSpeed * 2.5 && currentTime - glideStartTime > 2000) {
                 // Check for extremely high speeds after the initial takeoff (likely elytra + speed hack)
-                incrementViolationLevel(playerId, 3);
-                
                 if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(player.getName() + " extreme elytra speed: " + 
                             String.format("%.2f", horizontalSpeed) + " blocks/s");
                 }
                 
-                if (getViolationLevel(playerId) >= VIOLATION_THRESHOLD_SEVERE) {
-                    freezePlayer(player, "Extreme elytra speed detected!");
+                // Only take action for very extreme speeds
+                if (horizontalSpeed > maxSpeed * 3.5) {
+                    blockPlayerMovement(player, "Extreme elytra speed detected");
                     return false;
                 }
             }
@@ -267,7 +241,6 @@ public class MovementChecker {
                 // Check for hovering (staying at same Y level while in air)
                 if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
                     flyingViolation = true;
-                    incrementViolationLevel(playerId, 2); // Medium violation
                     
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(player.getName() + " potential hover hack: air ticks=" + currentAirTicks);
@@ -278,7 +251,6 @@ public class MovementChecker {
                 if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && 
                     !MovementUtils.isInLiquid(player) && currentAirTicks > 30) {
                     flyingViolation = true;
-                    incrementViolationLevel(playerId, 3); // Medium-high violation
                     
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
@@ -308,7 +280,6 @@ public class MovementChecker {
         if (horizontalSpeed > allowedSpeed) {
             // First check - basic speed threshold
             speedViolation = true;
-            incrementViolationLevel(playerId, 1); // Minor violation
             
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " speed violation: " + 
@@ -318,8 +289,6 @@ public class MovementChecker {
             
             // Check if speed is severely excessive (over 2x allowed)
             if (horizontalSpeed > allowedSpeed * 2) {
-                incrementViolationLevel(playerId, 2); // Add more violation points for extreme speeds
-                
                 if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(player.getName() + " extreme speed violation: " + 
                             String.format("%.2f", horizontalSpeed) + " blocks/s (over 2x allowed)");
@@ -330,7 +299,6 @@ public class MovementChecker {
         // Second check - consistent speed pattern
         if (!speedViolation && hasSpeedPattern(playerId, allowedSpeed)) {
             speedViolation = true;
-            incrementViolationLevel(playerId, 2); // Medium violation
             
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " has suspicious speed pattern: " + 
@@ -338,37 +306,13 @@ public class MovementChecker {
             }
         }
         
-        // If a violation was detected, handle it 
-        if (speedViolation || flyingViolation) {
-            // Simplify: If player is going extremely fast (2x allowed), freeze them immediately
-            if (horizontalSpeed > allowedSpeed * 2) {
-                Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-                teleportPlayerSafely(player, validLoc);
-                
-                String message = speedViolation ? "Excessive speed detected!" : "Illegal flight detected!";
-                freezePlayer(player, message);
-                
-                if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info("FREEZING " + player.getName() + " for speed: " + 
-                            String.format("%.2f", horizontalSpeed) + " blocks/s");
-                }
-                return false;
-            }
-            // Otherwise just teleport back
-            else if (shouldTeleportBack(playerId)) {
-                Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-                teleportPlayerSafely(player, validLoc);
-                
-                // Send appropriate message based on violation type
-                if (speedViolation) {
-                    player.sendMessage("§c[VelocityGuard] §fMoving too fast!");
-                } else {
-                    player.sendMessage("§c[VelocityGuard] §fIllegal flight detected!");
-                }
-                
-                isCheating.put(playerId, true);
-                return false;
-            }
+        // SIMPLIFIED: If a violation was detected, immediately block all movement
+        if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
+            String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
+            
+            // Block movement for the configured duration
+            blockPlayerMovement(player, message);
+            return false;
         } else {
             // No violations, update last valid location
             lastValidLocations.put(playerId, to.clone());
@@ -379,142 +323,47 @@ public class MovementChecker {
     }
     
     /**
-     * Freeze a player for a period of time
+     * Block all player movement for the configured duration
      */
-    private void freezePlayer(Player player, String message) {
+    private void blockPlayerMovement(Player player, String reason) {
         UUID playerId = player.getUniqueId();
         
-        // Calculate freeze duration based on past violations
+        // Get block duration from config (in seconds)
+        int blockDuration = plugin.getConfigManager().getCancelDuration();
+        
+        // Set blocked until timestamp
         long currentTime = System.currentTimeMillis();
-        long previousFreezeEnd = frozenUntil.getOrDefault(playerId, 0L);
-        long timeSincePreviousFreeze = currentTime - previousFreezeEnd;
+        long blockedUntil = currentTime + (blockDuration * 1000L);
         
-        // Determine freeze duration - longer for repeated offenses
-        long computedFreezeDuration = FREEZE_DURATION_MS;
-        
-        // If player was frozen recently, increase duration
-        if (previousFreezeEnd > 0 && timeSincePreviousFreeze < TimeUnit.MINUTES.toMillis(1)) {
-            // Calculate scaling freeze time based on violation level
-            int level = getViolationLevel(playerId);
-            double multiplier = Math.min(3.0, 1.0 + (level - VIOLATION_THRESHOLD_SEVERE) * 0.2);
-            computedFreezeDuration = (long) (FREEZE_DURATION_MS * multiplier);
-            
-            // Cap at maximum freeze time
-            computedFreezeDuration = Math.min(computedFreezeDuration, MAX_FREEZE_DURATION_MS);
+        // Use lock to ensure thread safety
+        operationLock.lock();
+        try {
+            movementBlockedUntil.put(playerId, blockedUntil);
+        } finally {
+            operationLock.unlock();
         }
         
-        // Make it final for use in the lambda
-        final long freezeDuration = computedFreezeDuration;
+        // Store current location as the last valid one
+        lastValidLocations.put(playerId, player.getLocation().clone());
         
-        // Set freeze until timestamp
-        frozenUntil.put(playerId, currentTime + freezeDuration);
-        
-        // Apply slowness effect to visually indicate they're frozen
-        // This runs on the main thread
+        // Notify the player on the main thread
         new BukkitRunnable() {
             @Override
             public void run() {
                 try {
                     if (player.isOnline()) {
-                        // Apply strong slowness effect
-                        player.addPotionEffect(new PotionEffect(
-                            PotionEffectType.SLOWNESS, 
-                            (int) (freezeDuration / 50) + 5, // Convert to ticks, add buffer
-                            4, // Amplifier (Slowness V)
-                            false, // No ambient particles
-                            false, // No particles
-                            true  // Show icon
-                        ));
-                        
-                        // Apply jump prevention
-                        player.addPotionEffect(new PotionEffect(
-                            PotionEffectType.JUMP_BOOST, 
-                            (int) (freezeDuration / 50) + 5, // Convert to ticks, add buffer
-                            200, // Extreme negative jump effect (prevents jumping)
-                            false,
-                            false,
-                            true
-                        ));
-                        
-                        // Notify the player
-                        player.sendMessage("§c[VelocityGuard] §f" + message + " You've been frozen for " + 
-                                (freezeDuration / 1000) + " seconds.");
+                        player.sendMessage("§c[VelocityGuard] §f" + reason + "! Movement blocked for " + blockDuration + " seconds.");
                         
                         if (plugin.isDebugEnabled()) {
-                            plugin.getLogger().info("Froze " + player.getName() + " for " + (freezeDuration / 1000) + 
-                                    " seconds due to severe movement violations");
+                            plugin.getLogger().info("Blocked all movement for " + player.getName() + 
+                                    " for " + blockDuration + " seconds. Reason: " + reason);
                         }
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Error applying freeze effects to " + player.getName() + ": " + e.getMessage());
+                    plugin.getLogger().warning("Error notifying player " + player.getName() + ": " + e.getMessage());
                 }
             }
         }.runTask(plugin);
-    }
-    
-    /**
-     * Check and unfreeze players whose freeze time has expired
-     */
-    private void checkFrozenPlayers() {
-        long currentTime = System.currentTimeMillis();
-        frozenUntil.forEach((playerId, endTime) -> {
-            if (currentTime > endTime) {
-                // Freeze period has ended, remove from map
-                frozenUntil.remove(playerId);
-                
-                // Get player
-                Player player = plugin.getServer().getPlayer(playerId);
-                if (player != null && player.isOnline()) {
-                    // Notify player they're unfrozen
-                    player.sendMessage("§a[VelocityGuard] §fYou can move normally now.");
-                    
-                    // Remove effects
-                    player.removePotionEffect(PotionEffectType.SLOWNESS);
-                    player.removePotionEffect(PotionEffectType.JUMP_BOOST);
-                    
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info("Unfroze " + player.getName() + " after freeze period");
-                    }
-                }
-            }
-        });
-    }
-    
-    /**
-     * Get a player's current violation level
-     */
-    private int getViolationLevel(UUID playerId) {
-        AtomicInteger level = violationLevels.get(playerId);
-        return level != null ? level.get() : 0;
-    }
-    
-    /**
-     * Increment the violation level for a player
-     */
-    private void incrementViolationLevel(UUID playerId, int amount) {
-        violationLevels.computeIfAbsent(playerId, k -> new AtomicInteger(0))
-                      .addAndGet(amount);
-    }
-    
-    /**
-     * Check if a player's violation level is high enough to trigger teleport
-     */
-    private boolean shouldTeleportBack(UUID playerId) {
-        return getViolationLevel(playerId) >= VIOLATION_THRESHOLD_MAJOR;
-    }
-    
-    /**
-     * Periodically reduce violation levels (called on timer)
-     */
-    private void decayViolationLevels() {
-        long now = System.currentTimeMillis();
-        violationLevels.forEach((playerId, level) -> {
-            // Reduce violations by 1 every 5 seconds
-            int current = level.get();
-            if (current > 0) {
-                level.updateAndGet(val -> Math.max(0, val - 1));
-            }
-        });
     }
     
     /**
@@ -645,8 +494,9 @@ public class MovementChecker {
         resetSpeedHistory(playerId);
         isCheating.put(playerId, false);
         wasGliding.put(playerId, player.isGliding());
-        violationLevels.put(playerId, new AtomicInteger(0));
-        frozenUntil.remove(playerId); // Ensure player isn't frozen on join/teleport
+        
+        // Let them move again (in case they were previously blocked)
+        movementBlockedUntil.remove(playerId);
     }
     
     /**
@@ -665,50 +515,66 @@ public class MovementChecker {
         takeoffTime.remove(playerId);
         preTakeoffSpeed.remove(playerId);
         isCheating.remove(playerId);
-        pendingTeleports.remove(playerId);
-        violationLevels.remove(playerId);
-        frozenUntil.remove(playerId);
+        movementBlockedUntil.remove(playerId);
+        
+        // Clean up chunk tracking data
+        chunksLoadedCounter.remove(playerId);
+        lastChunkCountReset.remove(playerId);
     }
     
     /**
-     * Teleport a player safely back to a valid location
-     * This method is designed to minimize main thread impact by using Bukkit scheduler
+     * Called when the plugin is being disabled
+     * Cleans up resources
      */
-    private void teleportPlayerSafely(Player player, Location location) {
-        // Use lock to prevent spamming teleports for the same player
-        teleportLock.lock();
+    public void shutdown() {
+        // Shutdown thread pool
+        chunkCheckExecutor.shutdown();
         try {
-            UUID playerId = player.getUniqueId();
-            long now = System.currentTimeMillis();
-            
-            // Check if we've teleported this player recently
-            Long lastTeleport = pendingTeleports.get(playerId);
-            if (lastTeleport != null && (now - lastTeleport < TELEPORT_COOLDOWN_MS)) {
-                return; // Skip this teleport - too soon after the last one
+            if (!chunkCheckExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                chunkCheckExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            chunkCheckExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    /**
+     * Track and check for excessive chunk loading
+     * @param playerId The UUID of the player
+     * @return true if player has loaded too many chunks
+     */
+    private boolean checkChunkLoading(UUID playerId) {
+        long currentTime = System.currentTimeMillis();
+        long lastResetTime = lastChunkCountReset.getOrDefault(playerId, 0L);
+        int maxChunksPerSecond = plugin.getConfigManager().getMaxChunksPerSecond();
+        boolean detailedMetrics = plugin.getConfigManager().isDetailedChunkMetricsEnabled();
+        
+        // Reset counter if it's been more than a second
+        if (currentTime - lastResetTime > CHUNK_COUNTER_RESET_MS) {
+            chunksLoadedCounter.put(playerId, 1);
+            lastChunkCountReset.put(playerId, currentTime);
+            return false;
+        }
+        
+        // Increment counter
+        int chunkCount = chunksLoadedCounter.getOrDefault(playerId, 0) + 1;
+        chunksLoadedCounter.put(playerId, chunkCount);
+        
+        // Check if exceeded limit
+        if (chunkCount > maxChunksPerSecond) {
+            // Run detailed chunk analysis on a separate thread if enabled
+            if (detailedMetrics && plugin.isDebugEnabled()) {
+                final int finalChunkCount = chunkCount; // Final copy for lambda
+                chunkCheckExecutor.execute(() -> {
+                    plugin.getLogger().info("Player " + playerId + " loaded " + finalChunkCount + 
+                            " chunks in 1 second (limit: " + maxChunksPerSecond + ") - violation detected");
+                });
             }
             
-            // Mark that we're teleporting this player
-            pendingTeleports.put(playerId, now);
-            
-            // Ensure teleport happens on the main thread
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    try {
-                        if (player.isOnline()) {
-                            player.teleport(location);
-                            
-                            if (plugin.isDebugEnabled()) {
-                                plugin.getLogger().info("Teleported " + player.getName() + " back to valid location");
-                            }
-                        }
-                    } catch (Exception e) {
-                        plugin.getLogger().warning("Error teleporting player " + player.getName() + ": " + e.getMessage());
-                    }
-                }
-            }.runTask(plugin);
-        } finally {
-            teleportLock.unlock();
+            return true;
         }
+        
+        return false;
     }
 } 
