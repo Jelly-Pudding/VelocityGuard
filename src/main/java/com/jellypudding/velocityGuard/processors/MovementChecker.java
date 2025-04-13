@@ -12,9 +12,6 @@ import java.util.UUID;
 import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Simple movement checker that directly prevents cheating by freezing players
@@ -49,14 +46,6 @@ public class MovementChecker {
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
     
-    // Track chunk loading caused by player movement
-    private final Map<UUID, Integer> chunksLoadedCounter = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastChunkCountReset = new ConcurrentHashMap<>();
-    private static final long CHUNK_COUNTER_RESET_MS = 1000;
-    
-    // Thread pool for async chunk checks
-    private final ExecutorService chunkCheckExecutor;
-    
     // Constants for pattern detection
     private static final int SPEED_HISTORY_SIZE = 6;
     private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
@@ -72,13 +61,6 @@ public class MovementChecker {
     
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
-        
-        // Create a dedicated thread pool for chunk checking
-        this.chunkCheckExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread thread = new Thread(r, "VelocityGuard-ChunkCheck");
-            thread.setDaemon(true);
-            return thread;
-        });
     }
     
     /**
@@ -103,11 +85,6 @@ public class MovementChecker {
                 }
             }
             return false; // Block all movement
-        }
-        
-        // Check for excessive chunk loading (only if positions are in different chunks)
-        if (from.getChunk() != to.getChunk()) {
-            checkChunkLoading(playerId);
         }
         
         // Skip processing identical locations
@@ -396,31 +373,7 @@ public class MovementChecker {
         
         return suspiciouslyConsistent || tooManyHighSpeeds;
     }
-    
-    /**
-     * Calculate angle between movement vectors (for detecting unrealistic turns)
-     */
-    private double calculateMovementAngle(Location previous, Location current, Location next) {
-        double dx1 = current.getX() - previous.getX();
-        double dz1 = current.getZ() - previous.getZ();
-        double dx2 = next.getX() - current.getX();
-        double dz2 = next.getZ() - current.getZ();
-        
-        // Calculate angle between vectors (in degrees)
-        double dot = dx1 * dx2 + dz1 * dz2;
-        double mag1 = Math.sqrt(dx1 * dx1 + dz1 * dz1);
-        double mag2 = Math.sqrt(dx2 * dx2 + dz2 * dz2);
-        
-        // Avoid division by zero
-        if (mag1 < 0.01 || mag2 < 0.01) return 0;
-        
-        double cosAngle = dot / (mag1 * mag2);
-        // Clamp to valid range to avoid precision errors
-        cosAngle = Math.max(-1, Math.min(1, cosAngle));
-        
-        return Math.toDegrees(Math.acos(cosAngle));
-    }
-    
+
     /**
      * Get the maximum allowed speed for a player
      */
@@ -484,10 +437,6 @@ public class MovementChecker {
         elytraLandingTime.remove(playerId);
         isCheating.remove(playerId);
         movementBlockedUntil.remove(playerId);
-        
-        // Clean up chunk tracking data
-        chunksLoadedCounter.remove(playerId);
-        lastChunkCountReset.remove(playerId);
     }
     
     /**
@@ -495,54 +444,6 @@ public class MovementChecker {
      * Cleans up resources
      */
     public void shutdown() {
-        // Shutdown thread pool
-        chunkCheckExecutor.shutdown();
-        try {
-            if (!chunkCheckExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                chunkCheckExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            chunkCheckExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
-    
-    /**
-     * Track and check for excessive chunk loading
-     * @param playerId The UUID of the player
-     * @return true if player has loaded too many chunks
-     */
-    private boolean checkChunkLoading(UUID playerId) {
-        long currentTime = System.currentTimeMillis();
-        long lastResetTime = lastChunkCountReset.getOrDefault(playerId, 0L);
-        int maxChunksPerSecond = plugin.getConfigManager().getMaxChunksPerSecond();
-        boolean detailedMetrics = plugin.getConfigManager().isDetailedChunkMetricsEnabled();
-        
-        // Reset counter if it's been more than a second
-        if (currentTime - lastResetTime > CHUNK_COUNTER_RESET_MS) {
-            chunksLoadedCounter.put(playerId, 1);
-            lastChunkCountReset.put(playerId, currentTime);
-            return false;
-        }
-        
-        // Increment counter
-        int chunkCount = chunksLoadedCounter.getOrDefault(playerId, 0) + 1;
-        chunksLoadedCounter.put(playerId, chunkCount);
-        
-        // Check if exceeded limit
-        if (chunkCount > maxChunksPerSecond) {
-            // Run detailed chunk analysis on a separate thread if enabled
-            if (detailedMetrics && plugin.isDebugEnabled()) {
-                final int finalChunkCount = chunkCount; // Final copy for lambda
-                chunkCheckExecutor.execute(() -> {
-                    plugin.getLogger().info("Player " + playerId + " loaded " + finalChunkCount + 
-                            " chunks in 1 second (limit: " + maxChunksPerSecond + ") - violation detected");
-                });
-            }
-            
-            return true;
-        }
-        
-        return false;
+        // Nothing to clean up now that chunk checking is removed
     }
 } 
