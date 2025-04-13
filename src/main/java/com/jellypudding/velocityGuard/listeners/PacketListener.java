@@ -10,6 +10,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.scheduler.BukkitRunnable;
 
 // Direct Minecraft imports
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -21,28 +22,40 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Listens for movement packets using Netty packet interception - Optimised for 1.21.4
  * Using direct Minecraft imports rather than reflection to avoid module restrictions
  * Also handles teleport events to prevent false positives
+ * Optimized for async processing to minimize main thread impact
  */
 public class PacketListener implements Listener {
-
+    
     private final VelocityGuard plugin;
-    private final Map<UUID, Channel> playerChannels = new HashMap<>();
+    private final Map<UUID, Channel> playerChannels = new ConcurrentHashMap<>();
     private static final String HANDLER_NAME = "velocity_guard_handler";
-
+    
     // Counters for diagnostics
     private final AtomicInteger successfulPackets = new AtomicInteger(0);
     private final AtomicInteger failedPackets = new AtomicInteger(0);
-
+    
+    // Thread pool for async processing of movement checks
+    private final ExecutorService asyncExecutor;
+    
     public PacketListener(VelocityGuard plugin) {
         this.plugin = plugin;
+        // Create a dedicated thread pool for movement processing
+        this.asyncExecutor = Executors.newFixedThreadPool(2, r -> {
+            Thread thread = new Thread(r, "VelocityGuard-Worker");
+            thread.setDaemon(true);
+            return thread;
+        });
         plugin.getLogger().info("Initialising packet listener for Minecraft 1.21.4 using direct imports");
     }
     
@@ -55,16 +68,78 @@ public class PacketListener implements Listener {
         // Register event listener for player join/quit
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         
-        // Inject currently online players
-        for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (injectPlayer(player)) {
-                successCount++;
-            }
-        }
+        // Inject currently online players - process in chunks to minimize main thread impact
+        final Player[] onlinePlayers = plugin.getServer().getOnlinePlayers().toArray(new Player[0]);
         
-        plugin.getLogger().info("Packet listeners registered for " + successCount + " players");
+        new BukkitRunnable() {
+            int index = 0;
+            final int BATCH_SIZE = 10;
+            
+            @Override
+            public void run() {
+                int processed = 0;
+                while (index < onlinePlayers.length && processed < BATCH_SIZE) {
+                    Player player = onlinePlayers[index++];
+                    if (injectPlayer(player)) {
+                        processed++;
+                    }
+                }
+                
+                if (index >= onlinePlayers.length) {
+                    plugin.getLogger().info("Packet listeners registered for " + index + " players");
+                    this.cancel();
+                }
+            }
+        }.runTaskTimer(plugin, 1L, 1L);
     }
-
+    
+    /**
+     * Handle player joining to inject our packet handler
+     */
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        final Player player = event.getPlayer();
+        
+        // Run packet handler injection on a separate thread to avoid blocking the main thread
+        asyncExecutor.execute(() -> {
+            injectPlayer(player);
+            
+            // Some operations must run on the main thread - schedule them with minimal impact
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    plugin.getMovementChecker().registerPlayer(player);
+                }
+            }.runTask(plugin);
+            
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("VelocityGuard now tracking " + player.getName());
+            }
+        });
+    }
+    
+    /**
+     * Handle player quitting to clean up
+     */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        final Player player = event.getPlayer();
+        final UUID playerId = player.getUniqueId();
+        
+        // Run uninject on async thread
+        asyncExecutor.execute(() -> {
+            uninjectPlayer(player);
+            
+            // Some operations must run on the main thread
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    plugin.getMovementChecker().unregisterPlayer(playerId);
+                }
+            }.runTask(plugin);
+        });
+    }
+    
     /**
      * Handle teleport events to prevent false positives
      */
@@ -72,40 +147,28 @@ public class PacketListener implements Listener {
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         if (event.isCancelled()) return;
         
-        Player player = event.getPlayer();
-        Location to = event.getTo();
+        final Player player = event.getPlayer();
+        final Location to = event.getTo().clone(); // Clone to prevent concurrent modification
         
         if (plugin.isDebugEnabled()) {
-            Location from = event.getFrom();
-            plugin.getLogger().info("Player teleport: " + player.getName() + 
-                    " from " + String.format("(%.2f, %.2f, %.2f)", from.getX(), from.getY(), from.getZ()) + 
-                    " to " + String.format("(%.2f, %.2f, %.2f)", to.getX(), to.getY(), to.getZ()));
+            final Location from = event.getFrom().clone();
+            // Log on async thread to reduce main thread impact
+            asyncExecutor.execute(() -> {
+                plugin.getLogger().info("Player teleport: " + player.getName() + 
+                        " from " + String.format("(%.2f, %.2f, %.2f)", from.getX(), from.getY(), from.getZ()) + 
+                        " to " + String.format("(%.2f, %.2f, %.2f)", to.getX(), to.getY(), to.getZ()));
+            });
         }
         
-        // Update the player's last valid location to the teleport destination
-        plugin.getMovementChecker().registerPlayer(player);
+        // Schedule registration for next tick to avoid blocking the main thread
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                plugin.getMovementChecker().registerPlayer(player);
+            }
+        }.runTask(plugin);
     }
-
-    /**
-     * Handle player joining to inject our packet handler
-     */
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        injectPlayer(player);
-        plugin.getMovementChecker().registerPlayer(player);
-        plugin.getLogger().info("VelocityGuard now tracking " + event.getPlayer().getName());
-    }
-
-    /**
-     * Handle player quitting to clean up
-     */
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        uninjectPlayer(event.getPlayer());
-        plugin.getMovementChecker().unregisterPlayer(event.getPlayer().getUniqueId());
-    }
-
+    
     /**
      * Injects a packet interceptor into a player's connection
      * @return true if injection was successful
@@ -116,23 +179,23 @@ public class PacketListener implements Listener {
                 plugin.getLogger().warning("Player " + player.getName() + " is not a CraftPlayer, cannot inject");
                 return false;
             }
-
+            
             CraftPlayer craftPlayer = (CraftPlayer) player;
             Channel channel = getChannel(craftPlayer);
-
+            
             if (channel == null) {
                 plugin.getLogger().warning("Could not get channel for player " + player.getName());
                 return false;
             }
-
+            
             // Store for later cleanup
             playerChannels.put(player.getUniqueId(), channel);
-
+            
             // Check if already injected
             if (channel.pipeline().get(HANDLER_NAME) != null) {
                 return true;
             }
-
+            
             // Add our packet handler to the pipeline
             channel.pipeline().addBefore("packet_handler", HANDLER_NAME, new ChannelDuplexHandler() {
                 @Override
@@ -154,15 +217,17 @@ public class PacketListener implements Listener {
                             
                             // Create destination location if position changed
                             if (positionChanged) {
-                                Location to = new Location(player.getWorld(), x, y, z, yaw, pitch);
+                                final Location to = new Location(player.getWorld(), x, y, z, yaw, pitch);
                                 
                                 // Only process if the player actually moved
                                 if (from.distanceSquared(to) > 0.001) {
                                     // Count successful packet
                                     successfulPackets.incrementAndGet();
-
+                                    
+                                    // Process the movement on the netty thread - this is crucial for performance
+                                    // If MovementChecker has main thread operations, they should be minimized
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, from, to);
-
+                                    
                                     if (!allowed) {
                                         return; // Don't call super.channelRead - this effectively cancels the packet
                                     }
@@ -172,7 +237,9 @@ public class PacketListener implements Listener {
                     } catch (Exception e) {
                         failedPackets.incrementAndGet();
                         if (plugin.isDebugEnabled()) {
-                            plugin.getLogger().warning("Error processing packet: " + e.getMessage());
+                            asyncExecutor.execute(() -> {
+                                plugin.getLogger().warning("Error processing packet: " + e.getMessage());
+                            });
                         }
                     }
                     
@@ -182,15 +249,20 @@ public class PacketListener implements Listener {
             });
             
             if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Successfully injected packet handler for " + player.getName());
+                asyncExecutor.execute(() -> {
+                    plugin.getLogger().info("Successfully injected packet handler for " + player.getName());
+                });
             }
             return true;
             
         } catch (Exception e) {
-            plugin.getLogger().severe("Error injecting player " + player.getName() + ": " + e.getMessage());
-            if (plugin.isDebugEnabled()) {
-                e.printStackTrace();
-            }
+            final String errorMsg = e.getMessage();
+            asyncExecutor.execute(() -> {
+                plugin.getLogger().severe("Error injecting player " + player.getName() + ": " + errorMsg);
+                if (plugin.isDebugEnabled()) {
+                    e.printStackTrace();
+                }
+            });
             return false;
         }
     }
@@ -205,7 +277,10 @@ public class PacketListener implements Listener {
             Connection networkManager = connection.connection;
             return networkManager.channel;
         } catch (Exception e) {
-            plugin.getLogger().severe("Error getting channel for player " + player.getName() + ": " + e.getMessage());
+            final String errorMsg = e.getMessage();
+            asyncExecutor.execute(() -> {
+                plugin.getLogger().severe("Error getting channel for player " + player.getName() + ": " + errorMsg);
+            });
             return null;
         }
     }
@@ -217,6 +292,10 @@ public class PacketListener implements Listener {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             uninjectPlayer(player);
         }
+        
+        // Shutdown the executor service
+        asyncExecutor.shutdown();
+        
         plugin.getLogger().info("All packet listeners have been removed");
     }
 
@@ -232,7 +311,9 @@ public class PacketListener implements Listener {
         if (channel != null && channel.pipeline().get(HANDLER_NAME) != null) {
             channel.pipeline().remove(HANDLER_NAME);
             if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Removed packet handler from " + player.getName());
+                asyncExecutor.execute(() -> {
+                    plugin.getLogger().info("Removed packet handler from " + player.getName());
+                });
             }
         }
     }

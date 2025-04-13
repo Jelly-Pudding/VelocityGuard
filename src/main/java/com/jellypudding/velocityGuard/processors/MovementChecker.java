@@ -3,18 +3,26 @@ package com.jellypudding.velocityGuard.processors;
 import com.jellypudding.velocityGuard.VelocityGuard;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.Location;
+import org.bukkit.Registry;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Simple movement checker that directly prevents cheating by freezing players
  * who use speed/fly cheats until they stop cheating.
+ * Optimized for minimal main thread impact.
  */
 public class MovementChecker {
     
@@ -38,6 +46,18 @@ public class MovementChecker {
     // Cache whether a player was detected as cheating on their last movement
     private final Map<UUID, Boolean> isCheating = new ConcurrentHashMap<>();
     
+    // Keep track of players with pending teleports to avoid spamming
+    private final Map<UUID, Long> pendingTeleports = new ConcurrentHashMap<>();
+    
+    // Track when players were frozen and for how long
+    private final Map<UUID, Long> frozenUntil = new ConcurrentHashMap<>();
+    
+    // Lock for teleport operations
+    private final ReentrantLock teleportLock = new ReentrantLock();
+    
+    // Track violation counts for more gradual enforcement
+    private final Map<UUID, AtomicInteger> violationLevels = new ConcurrentHashMap<>();
+    
     // Constants for pattern detection
     private static final int SPEED_HISTORY_SIZE = 6;
     private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
@@ -48,12 +68,45 @@ public class MovementChecker {
     private static final long JUMP_GRACE_PERIOD_MS = 700; // Allow 700ms of higher speed for jump boosts
     private static final double ELYTRA_TAKEOFF_MAX_SPEED = 14.0; // Maximum allowed speed when first activating elytra
     
+    // Teleport cooldown to prevent packet spam
+    private static final long TELEPORT_COOLDOWN_MS = 500;
+    
+    // Violation thresholds
+    private static final int VIOLATION_THRESHOLD_MINOR = 3;
+    private static final int VIOLATION_THRESHOLD_MAJOR = 8;
+    private static final int VIOLATION_THRESHOLD_SEVERE = 15;
+    private static final int VIOLATION_RESET_SECONDS = 5;
+    
+    // Freeze settings
+    private static final long FREEZE_DURATION_MS = 3000; // 3 seconds freeze for first offense
+    private static final long MAX_FREEZE_DURATION_MS = 10000; // 10 seconds max freeze time
+    private static final double FREEZE_DURATION_MULTIPLIER = 1.5; // Each subsequent freeze lasts longer
+    
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
+        
+        // Start violation decay task (runs every 5 seconds)
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // This task runs on the main thread but is very lightweight
+                // and only executes every 5 seconds
+                decayViolationLevels();
+            }
+        }.runTaskTimer(plugin, 100L, 100L);
+        
+        // Start frozen player check task (runs every second)
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                checkFrozenPlayers();
+            }
+        }.runTaskTimer(plugin, 20L, 20L);
     }
     
     /**
      * Process a player movement and check if it's valid
+     * This method is designed to run safely from any thread
      * @param player The player who moved
      * @param from The previous location
      * @param to The new location
@@ -63,6 +116,13 @@ public class MovementChecker {
         if (player == null || from == null || to == null) return true;
         UUID playerId = player.getUniqueId();
         
+        // Check if player is currently frozen
+        Long frozenTime = frozenUntil.get(playerId);
+        if (frozenTime != null && System.currentTimeMillis() < frozenTime) {
+            // Player is frozen, deny movement
+            return false;
+        }
+        
         // Skip processing identical locations
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return true;
@@ -71,7 +131,7 @@ public class MovementChecker {
         // Skip for creative/spectator mode players
         if (player.getGameMode().toString().contains("CREATIVE") ||
             player.getGameMode().toString().contains("SPECTATOR")) {
-            lastValidLocations.put(playerId, to);
+            lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
             return true;
         }
@@ -82,9 +142,15 @@ public class MovementChecker {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
             }
-            lastValidLocations.put(playerId, to);
+            lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
             resetSpeedHistory(playerId);
+            return true;
+        }
+        
+        // Don't check if there's a pending teleport cooldown
+        Long lastTeleport = pendingTeleports.get(playerId);
+        if (lastTeleport != null && System.currentTimeMillis() - lastTeleport < TELEPORT_COOLDOWN_MS) {
             return true;
         }
         
@@ -142,11 +208,34 @@ public class MovementChecker {
                                 String.format("%.2f", preTakeoff) + ")");
                     }
                     
-                    // This is likely a speed hack + elytra exploit
-                    Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-                    teleportPlayerSafely(player, validLoc);
-                    player.sendMessage("§c[VelocityGuard] §fSuspicious elytra takeoff detected!");
-                    isCheating.put(playerId, true);
+                    // This is likely a speed hack + elytra exploit - severe violation
+                    incrementViolationLevel(playerId, 5); // Major violation
+                    
+                    if (getViolationLevel(playerId) >= VIOLATION_THRESHOLD_SEVERE) {
+                        // Force them off elytra by teleporting and applying freeze
+                        Location validLoc = lastValidLocations.getOrDefault(playerId, from);
+                        teleportPlayerSafely(player, validLoc);
+                        freezePlayer(player, "Suspicious elytra takeoff detected!");
+                        return false;
+                    } else if (shouldTeleportBack(playerId)) {
+                        Location validLoc = lastValidLocations.getOrDefault(playerId, from);
+                        teleportPlayerSafely(player, validLoc);
+                        player.sendMessage("§c[VelocityGuard] §fSuspicious elytra takeoff detected!");
+                        isCheating.put(playerId, true);
+                        return false;
+                    }
+                }
+            } else if (horizontalSpeed > maxSpeed * 2.5 && currentTime - glideStartTime > 2000) {
+                // Check for extremely high speeds after the initial takeoff (likely elytra + speed hack)
+                incrementViolationLevel(playerId, 3);
+                
+                if (plugin.isDebugEnabled()) {
+                    plugin.getLogger().info(player.getName() + " extreme elytra speed: " + 
+                            String.format("%.2f", horizontalSpeed) + " blocks/s");
+                }
+                
+                if (getViolationLevel(playerId) >= VIOLATION_THRESHOLD_SEVERE) {
+                    freezePlayer(player, "Extreme elytra speed detected!");
                     return false;
                 }
             }
@@ -178,6 +267,7 @@ public class MovementChecker {
                 // Check for hovering (staying at same Y level while in air)
                 if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
                     flyingViolation = true;
+                    incrementViolationLevel(playerId, 2); // Medium violation
                     
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(player.getName() + " potential hover hack: air ticks=" + currentAirTicks);
@@ -188,6 +278,7 @@ public class MovementChecker {
                 if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && 
                     !MovementUtils.isInLiquid(player) && currentAirTicks > 30) {
                     flyingViolation = true;
+                    incrementViolationLevel(playerId, 3); // Medium-high violation
                     
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
@@ -199,135 +290,256 @@ public class MovementChecker {
         // Enhanced speed hack detection with multiple checks
         boolean speedViolation = false;
         
-        // Determine if this could be a legitimate sprint-jump
-        boolean isPossibleSprintJump = player.isSprinting() && isJumping;
-        
-        // Apply more generous speed limits for sprint-jumping
-        double effectiveMaxSpeed = maxSpeed;
-        if (isPossibleSprintJump) {
-            effectiveMaxSpeed = Math.max(maxSpeed, plugin.getConfigManager().getMaxHorizontalSpeed() * SPRINT_JUMP_SPEED_MULTIPLIER);
-            
-            if (plugin.isDebugEnabled() && horizontalSpeed > maxSpeed) {
-                plugin.getLogger().info(player.getName() + " sprint-jump speed: " + 
-                        String.format("%.2f", horizontalSpeed) + " (adjusted max: " + 
-                        String.format("%.2f", effectiveMaxSpeed) + ")");
-            }
+        // Only perform regular speed check if not in jump or not in jump grace period
+        boolean isInJumpGracePeriod = false;
+        if (isJumping || isNearGround) {
+            // Reset the jump timer when we detect a jump
+            isInJumpGracePeriod = true;
+        } else {
+            // Check if we're still within the grace period for jump or sprint
+            long timeSinceGrounded = currentTime - lastMoveTime.getOrDefault(playerId, currentTime);
+            isInJumpGracePeriod = timeSinceGrounded < JUMP_GRACE_PERIOD_MS;
         }
         
-        // Check 1: Basic speed check with adjusted max for sprint-jumping
-        if (horizontalSpeed > effectiveMaxSpeed) {
+        // Standard speed check (with adjusted max for jumps and sprints)
+        double speedMultiplier = isInJumpGracePeriod ? SPRINT_JUMP_SPEED_MULTIPLIER : 1.0;
+        double allowedSpeed = maxSpeed * speedMultiplier;
+        
+        if (horizontalSpeed > allowedSpeed) {
+            // First check - basic speed threshold
             speedViolation = true;
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " speed violation (basic): " + 
-                        String.format("%.2f", horizontalSpeed) + " > " + String.format("%.2f", effectiveMaxSpeed) + 
-                        (isPossibleSprintJump ? " (sprint-jump)" : ""));
-            }
-        }
-        
-        // Check 2: Pattern detection for consistent high speeds (speed hack signature)
-        // Skip for possible sprint jumps to reduce false positives
-        if (!speedViolation && !isPossibleSprintJump && hasSpeedPattern(playerId, maxSpeed)) {
-            speedViolation = true;
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " speed violation (pattern): Consistent high speed detected");
-            }
-        }
-        
-        // Check 3: Unusually large single movement
-        // Skip during sprint-jumping to reduce false positives
-        if (!speedViolation && !isPossibleSprintJump && horizontalDistance > 0.5 && !player.isGliding() && 
-            !MovementUtils.isInLiquid(player) && timeDelta < 70) {
+            incrementViolationLevel(playerId, 1); // Minor violation
             
-            // More strict check for ground movement vs air
-            double distanceThreshold = isNearGround ? 0.5 : 0.7;
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(player.getName() + " speed violation: " + 
+                        String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
+                        String.format("%.2f", allowedSpeed) + ")");
+            }
             
-            if (horizontalDistance > distanceThreshold) {
-                speedViolation = true;
+            // Check if speed is severely excessive (over 2x allowed)
+            if (horizontalSpeed > allowedSpeed * 2) {
+                incrementViolationLevel(playerId, 2); // Add more violation points for extreme speeds
+                
                 if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info(player.getName() + " speed violation (distance): " + 
-                            String.format("%.2f", horizontalDistance) + " blocks in " + timeDelta + "ms");
+                    plugin.getLogger().info(player.getName() + " extreme speed violation: " + 
+                            String.format("%.2f", horizontalSpeed) + " blocks/s (over 2x allowed)");
                 }
             }
         }
         
-        // Check 4: Unrealistic movement angles (common in some speed hacks)
-        // Skip during sprint-jumping to reduce false positives
-        Location lastValid = lastValidLocations.getOrDefault(playerId, from);
-        if (!speedViolation && !isPossibleSprintJump && !lastValid.equals(from) && horizontalDistance > 0.3) {
-            double angle = calculateMovementAngle(lastValid, from, to);
+        // Second check - consistent speed pattern
+        if (!speedViolation && hasSpeedPattern(playerId, allowedSpeed)) {
+            speedViolation = true;
+            incrementViolationLevel(playerId, 2); // Medium violation
             
-            // Sharp turns at high speeds are physically impossible
-            if (angle > 100 && horizontalSpeed > maxSpeed * 0.7) {
-                speedViolation = true;
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(player.getName() + " has suspicious speed pattern: " + 
+                        String.format("%.2f", horizontalSpeed) + " blocks/s");
+            }
+        }
+        
+        // If a violation was detected, handle it 
+        if (speedViolation || flyingViolation) {
+            // Simplify: If player is going extremely fast (2x allowed), freeze them immediately
+            if (horizontalSpeed > allowedSpeed * 2) {
+                Location validLoc = lastValidLocations.getOrDefault(playerId, from);
+                teleportPlayerSafely(player, validLoc);
+                
+                String message = speedViolation ? "Excessive speed detected!" : "Illegal flight detected!";
+                freezePlayer(player, message);
+                
                 if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info(player.getName() + " speed violation (angle): " + 
-                            String.format("%.1f", angle) + "° turn at " + 
+                    plugin.getLogger().info("FREEZING " + player.getName() + " for speed: " + 
                             String.format("%.2f", horizontalSpeed) + " blocks/s");
                 }
+                return false;
             }
-        }
-        
-        // If either violation is detected
-        boolean isCurrentlyCheating = speedViolation || flyingViolation;
-        
-        if (isCurrentlyCheating) {
-            // Mark player as cheating
-            isCheating.put(playerId, true);
-            
-            // Send feedback to player 
-            if (plugin.isDebugEnabled()) {
-                String violationType = speedViolation ? "Speed" : "Fly";
-                plugin.getLogger().info(player.getName() + " " + violationType + " violation detected!");
-            }
-            
-            // If this is their first detected violation, notify them
-            if (!isCheating.getOrDefault(playerId, false)) {
-                player.sendMessage("§c[VelocityGuard] §fIllegal movement detected!");
-            }
-            
-            // Teleport player back to last valid location
-            Location validLoc = lastValidLocations.getOrDefault(playerId, from);
-            teleportPlayerSafely(player, validLoc);
-            
-            // Reject the movement
-            return false;
-        } else {
-            // Player is not cheating, update their last valid location
-            lastValidLocations.put(playerId, to);
-            
-            // If they were previously cheating but stopped, mark them as not cheating
-            if (isCheating.getOrDefault(playerId, false)) {
-                isCheating.put(playerId, false);
+            // Otherwise just teleport back
+            else if (shouldTeleportBack(playerId)) {
+                Location validLoc = lastValidLocations.getOrDefault(playerId, from);
+                teleportPlayerSafely(player, validLoc);
                 
-                // Inform them they can move again
-                player.sendMessage("§a[VelocityGuard] §fYou can move freely now.");
+                // Send appropriate message based on violation type
+                if (speedViolation) {
+                    player.sendMessage("§c[VelocityGuard] §fMoving too fast!");
+                } else {
+                    player.sendMessage("§c[VelocityGuard] §fIllegal flight detected!");
+                }
+                
+                isCheating.put(playerId, true);
+                return false;
             }
-            
-            // Allow the movement
-            return true;
+        } else {
+            // No violations, update last valid location
+            lastValidLocations.put(playerId, to.clone());
+            isCheating.put(playerId, false);
         }
+        
+        return true;
     }
     
     /**
-     * Update the player's speed history for pattern detection
+     * Freeze a player for a period of time
+     */
+    private void freezePlayer(Player player, String message) {
+        UUID playerId = player.getUniqueId();
+        
+        // Calculate freeze duration based on past violations
+        long currentTime = System.currentTimeMillis();
+        long previousFreezeEnd = frozenUntil.getOrDefault(playerId, 0L);
+        long timeSincePreviousFreeze = currentTime - previousFreezeEnd;
+        
+        // Determine freeze duration - longer for repeated offenses
+        long computedFreezeDuration = FREEZE_DURATION_MS;
+        
+        // If player was frozen recently, increase duration
+        if (previousFreezeEnd > 0 && timeSincePreviousFreeze < TimeUnit.MINUTES.toMillis(1)) {
+            // Calculate scaling freeze time based on violation level
+            int level = getViolationLevel(playerId);
+            double multiplier = Math.min(3.0, 1.0 + (level - VIOLATION_THRESHOLD_SEVERE) * 0.2);
+            computedFreezeDuration = (long) (FREEZE_DURATION_MS * multiplier);
+            
+            // Cap at maximum freeze time
+            computedFreezeDuration = Math.min(computedFreezeDuration, MAX_FREEZE_DURATION_MS);
+        }
+        
+        // Make it final for use in the lambda
+        final long freezeDuration = computedFreezeDuration;
+        
+        // Set freeze until timestamp
+        frozenUntil.put(playerId, currentTime + freezeDuration);
+        
+        // Apply slowness effect to visually indicate they're frozen
+        // This runs on the main thread
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    if (player.isOnline()) {
+                        // Apply strong slowness effect
+                        player.addPotionEffect(new PotionEffect(
+                            PotionEffectType.SLOWNESS, 
+                            (int) (freezeDuration / 50) + 5, // Convert to ticks, add buffer
+                            4, // Amplifier (Slowness V)
+                            false, // No ambient particles
+                            false, // No particles
+                            true  // Show icon
+                        ));
+                        
+                        // Apply jump prevention
+                        player.addPotionEffect(new PotionEffect(
+                            PotionEffectType.JUMP_BOOST, 
+                            (int) (freezeDuration / 50) + 5, // Convert to ticks, add buffer
+                            200, // Extreme negative jump effect (prevents jumping)
+                            false,
+                            false,
+                            true
+                        ));
+                        
+                        // Notify the player
+                        player.sendMessage("§c[VelocityGuard] §f" + message + " You've been frozen for " + 
+                                (freezeDuration / 1000) + " seconds.");
+                        
+                        if (plugin.isDebugEnabled()) {
+                            plugin.getLogger().info("Froze " + player.getName() + " for " + (freezeDuration / 1000) + 
+                                    " seconds due to severe movement violations");
+                        }
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error applying freeze effects to " + player.getName() + ": " + e.getMessage());
+                }
+            }
+        }.runTask(plugin);
+    }
+    
+    /**
+     * Check and unfreeze players whose freeze time has expired
+     */
+    private void checkFrozenPlayers() {
+        long currentTime = System.currentTimeMillis();
+        frozenUntil.forEach((playerId, endTime) -> {
+            if (currentTime > endTime) {
+                // Freeze period has ended, remove from map
+                frozenUntil.remove(playerId);
+                
+                // Get player
+                Player player = plugin.getServer().getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    // Notify player they're unfrozen
+                    player.sendMessage("§a[VelocityGuard] §fYou can move normally now.");
+                    
+                    // Remove effects
+                    player.removePotionEffect(PotionEffectType.SLOWNESS);
+                    player.removePotionEffect(PotionEffectType.JUMP_BOOST);
+                    
+                    if (plugin.isDebugEnabled()) {
+                        plugin.getLogger().info("Unfroze " + player.getName() + " after freeze period");
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * Get a player's current violation level
+     */
+    private int getViolationLevel(UUID playerId) {
+        AtomicInteger level = violationLevels.get(playerId);
+        return level != null ? level.get() : 0;
+    }
+    
+    /**
+     * Increment the violation level for a player
+     */
+    private void incrementViolationLevel(UUID playerId, int amount) {
+        violationLevels.computeIfAbsent(playerId, k -> new AtomicInteger(0))
+                      .addAndGet(amount);
+    }
+    
+    /**
+     * Check if a player's violation level is high enough to trigger teleport
+     */
+    private boolean shouldTeleportBack(UUID playerId) {
+        return getViolationLevel(playerId) >= VIOLATION_THRESHOLD_MAJOR;
+    }
+    
+    /**
+     * Periodically reduce violation levels (called on timer)
+     */
+    private void decayViolationLevels() {
+        long now = System.currentTimeMillis();
+        violationLevels.forEach((playerId, level) -> {
+            // Reduce violations by 1 every 5 seconds
+            int current = level.get();
+            if (current > 0) {
+                level.updateAndGet(val -> Math.max(0, val - 1));
+            }
+        });
+    }
+    
+    /**
+     * Update speed history for a player
      */
     private void updateSpeedHistory(UUID playerId, double speed) {
-        Queue<Double> history = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
+        Queue<Double> speeds = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
         
-        // Add the current speed to history
-        history.add(speed);
+        // Add the new speed to the history
+        speeds.add(speed);
         
-        // Keep only the most recent entries
-        while (history.size() > SPEED_HISTORY_SIZE) {
-            history.poll();
+        // Keep history size limited
+        while (speeds.size() > SPEED_HISTORY_SIZE) {
+            speeds.poll();
         }
     }
     
     /**
-     * Reset a player's speed history
+     * Reset speed history for a player
      */
     private void resetSpeedHistory(UUID playerId) {
-        recentSpeeds.remove(playerId);
+        Queue<Double> speeds = recentSpeeds.get(playerId);
+        if (speeds != null) {
+            speeds.clear();
+        }
     }
     
     /**
@@ -418,43 +630,85 @@ public class MovementChecker {
     }
     
     /**
-     * Register a player when they join
+     * Register a player with the movement checker
+     * Called when a player joins or teleports
      */
     public void registerPlayer(Player player) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
-        lastValidLocations.put(playerId, player.getLocation());
-        isCheating.put(playerId, false);
+        
+        // Store current location as valid
+        lastValidLocations.put(playerId, player.getLocation().clone());
+        
+        // Reset tracking variables
         airTicks.put(playerId, 0);
         resetSpeedHistory(playerId);
-        lastMoveTime.put(playerId, System.currentTimeMillis());
+        isCheating.put(playerId, false);
         wasGliding.put(playerId, player.isGliding());
+        violationLevels.put(playerId, new AtomicInteger(0));
+        frozenUntil.remove(playerId); // Ensure player isn't frozen on join/teleport
     }
     
     /**
-     * Unregister a player when they leave
+     * Unregister a player from the movement checker
+     * Called when a player leaves the server
      */
     public void unregisterPlayer(UUID playerId) {
         if (playerId == null) return;
+        
+        // Remove player from all tracking maps
         lastValidLocations.remove(playerId);
-        isCheating.remove(playerId);
         airTicks.remove(playerId);
         recentSpeeds.remove(playerId);
         lastMoveTime.remove(playerId);
         wasGliding.remove(playerId);
         takeoffTime.remove(playerId);
         preTakeoffSpeed.remove(playerId);
+        isCheating.remove(playerId);
+        pendingTeleports.remove(playerId);
+        violationLevels.remove(playerId);
+        frozenUntil.remove(playerId);
     }
     
     /**
-     * Teleport a player safely on the main thread
+     * Teleport a player safely back to a valid location
+     * This method is designed to minimize main thread impact by using Bukkit scheduler
      */
     private void teleportPlayerSafely(Player player, Location location) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                player.teleport(location);
+        // Use lock to prevent spamming teleports for the same player
+        teleportLock.lock();
+        try {
+            UUID playerId = player.getUniqueId();
+            long now = System.currentTimeMillis();
+            
+            // Check if we've teleported this player recently
+            Long lastTeleport = pendingTeleports.get(playerId);
+            if (lastTeleport != null && (now - lastTeleport < TELEPORT_COOLDOWN_MS)) {
+                return; // Skip this teleport - too soon after the last one
             }
-        }.runTask(plugin);
+            
+            // Mark that we're teleporting this player
+            pendingTeleports.put(playerId, now);
+            
+            // Ensure teleport happens on the main thread
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (player.isOnline()) {
+                            player.teleport(location);
+                            
+                            if (plugin.isDebugEnabled()) {
+                                plugin.getLogger().info("Teleported " + player.getName() + " back to valid location");
+                            }
+                        }
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error teleporting player " + player.getName() + ": " + e.getMessage());
+                    }
+                }
+            }.runTask(plugin);
+        } finally {
+            teleportLock.unlock();
+        }
     }
 } 
