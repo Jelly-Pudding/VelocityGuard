@@ -31,7 +31,7 @@ public final class VelocityGuard extends JavaPlugin {
         // Install packet handlers
         packetListener.inject();
         
-        getLogger().info("VelocityGuard has been enabled. Now monitoring for speed and flight cheats.");
+        getLogger().info("VelocityGuard has been enabled.");
     }
 
     @Override
@@ -39,6 +39,11 @@ public final class VelocityGuard extends JavaPlugin {
         // Remove packet handlers
         if (packetListener != null) {
             packetListener.uninject();
+        }
+
+        // Shutdown thread pools and clean up resources
+        if (movementChecker != null) {
+            movementChecker.shutdown();
         }
         
         getLogger().info("VelocityGuard has been disabled.");
