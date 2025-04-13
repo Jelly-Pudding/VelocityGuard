@@ -5,8 +5,6 @@ import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
 
 import java.util.Map;
 import java.util.Queue;
@@ -67,13 +65,10 @@ public class MovementChecker {
     // Constants for legitimate movements
     private static final double SPRINT_JUMP_SPEED_MULTIPLIER = 1.8; // Higher multiplier for sprint jumping
     private static final long JUMP_GRACE_PERIOD_MS = 700; // Allow 700ms of higher speed for jump boosts
-    private static final double ELYTRA_TAKEOFF_MAX_SPEED = 14.0; // Maximum allowed speed when first activating elytra
+    private static final long ELYTRA_LANDING_GRACE_PERIOD_MS = 1500; // Grace period after landing from elytra flight
     
-    // Teleport cooldown to prevent packet spam
-    private static final long TELEPORT_COOLDOWN_MS = 500;
-    
-    // Freeze settings
-    private static final long FREEZE_DURATION_MS = 3000; // 3 seconds freeze 
+    // Track when players landed from elytra flight
+    private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
     
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -161,59 +156,21 @@ public class MovementChecker {
         
         // If player just started gliding, record takeoff information
         if (isCurrentlyGliding && !wasGlidingPreviously) {
-            takeoffTime.put(playerId, currentTime);
-            preTakeoffSpeed.put(playerId, horizontalSpeed);
-            
             if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " started gliding at speed: " + 
-                        String.format("%.2f", horizontalSpeed) + " blocks/s");
+                plugin.getLogger().info(player.getName() + " started gliding");
+            }
+        }
+        
+        // If player just stopped gliding (landed), record the landing time
+        if (!isCurrentlyGliding && wasGlidingPreviously) {
+            elytraLandingTime.put(playerId, currentTime);
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(player.getName() + " stopped gliding (landed)");
             }
         }
         
         // Get max allowed speed with adjustments for game conditions
         double maxSpeed = getMaxAllowedSpeed(player);
-        
-        // Special handling for elytra - detect speed abuse during takeoff
-        if (isCurrentlyGliding) {
-            // If player just started gliding, check for abnormal takeoff speed
-            long glideStartTime = takeoffTime.getOrDefault(playerId, 0L);
-            long glideTime = currentTime - glideStartTime;
-            
-            // During the first second of gliding, apply stricter speed limits to prevent
-            // the "activate speed hack then immediately elytra" exploit
-            if (glideTime < 1000) {
-                double preTakeoff = preTakeoffSpeed.getOrDefault(playerId, 0.0);
-                
-                // If player had an abnormal speed increase right before takeoff or during initial glide
-                if (preTakeoff > plugin.getConfigManager().getMaxHorizontalSpeed() * 1.3 || 
-                    horizontalSpeed > ELYTRA_TAKEOFF_MAX_SPEED) {
-                    
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(player.getName() + " suspicious elytra takeoff speed: " + 
-                                String.format("%.2f", horizontalSpeed) + " blocks/s (pre-takeoff: " + 
-                                String.format("%.2f", preTakeoff) + ")");
-                    }
-                    
-                    // This is likely a speed hack + elytra exploit - take action only for extreme cases
-                    if (horizontalSpeed > ELYTRA_TAKEOFF_MAX_SPEED * 1.5) {
-                        blockPlayerMovement(player, "Suspicious elytra takeoff detected");
-                        return false;
-                    }
-                }
-            } else if (horizontalSpeed > maxSpeed * 2.5 && currentTime - glideStartTime > 2000) {
-                // Check for extremely high speeds after the initial takeoff (likely elytra + speed hack)
-                if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info(player.getName() + " extreme elytra speed: " + 
-                            String.format("%.2f", horizontalSpeed) + " blocks/s");
-                }
-                
-                // Only take action for very extreme speeds
-                if (horizontalSpeed > maxSpeed * 3.5) {
-                    blockPlayerMovement(player, "Extreme elytra speed detected");
-                    return false;
-                }
-            }
-        }
         
         // Update speed history for pattern detection
         updateSpeedHistory(playerId, horizontalSpeed);
@@ -263,18 +220,28 @@ public class MovementChecker {
         boolean speedViolation = false;
         
         // Only perform regular speed check if not in jump or not in jump grace period
-        boolean isInJumpGracePeriod = false;
+        boolean isInGracePeriod = false;
         if (isJumping || isNearGround) {
             // Reset the jump timer when we detect a jump
-            isInJumpGracePeriod = true;
+            isInGracePeriod = true;
         } else {
             // Check if we're still within the grace period for jump or sprint
             long timeSinceGrounded = currentTime - lastMoveTime.getOrDefault(playerId, currentTime);
-            isInJumpGracePeriod = timeSinceGrounded < JUMP_GRACE_PERIOD_MS;
+            isInGracePeriod = timeSinceGrounded < JUMP_GRACE_PERIOD_MS;
+            
+            // Check if we just landed from elytra flight
+            Long landingTime = elytraLandingTime.get(playerId);
+            if (landingTime != null && (currentTime - landingTime < ELYTRA_LANDING_GRACE_PERIOD_MS)) {
+                isInGracePeriod = true;
+                if (plugin.isDebugEnabled() && horizontalSpeed > maxSpeed) {
+                    plugin.getLogger().info(player.getName() + " in elytra landing grace period, speed: " + 
+                            String.format("%.2f", horizontalSpeed) + " blocks/s");
+                }
+            }
         }
         
         // Standard speed check (with adjusted max for jumps and sprints)
-        double speedMultiplier = isInJumpGracePeriod ? SPRINT_JUMP_SPEED_MULTIPLIER : 1.0;
+        double speedMultiplier = isInGracePeriod ? SPRINT_JUMP_SPEED_MULTIPLIER : 1.0;
         double allowedSpeed = maxSpeed * speedMultiplier;
         
         if (horizontalSpeed > allowedSpeed) {
@@ -514,6 +481,7 @@ public class MovementChecker {
         wasGliding.remove(playerId);
         takeoffTime.remove(playerId);
         preTakeoffSpeed.remove(playerId);
+        elytraLandingTime.remove(playerId);
         isCheating.remove(playerId);
         movementBlockedUntil.remove(playerId);
         
