@@ -438,12 +438,5 @@ public class MovementChecker {
         isCheating.remove(playerId);
         movementBlockedUntil.remove(playerId);
     }
-    
-    /**
-     * Called when the plugin is being disabled
-     * Cleans up resources
-     */
-    public void shutdown() {
-        // Nothing to clean up now that chunk checking is removed
-    }
+
 } 

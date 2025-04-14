@@ -1,5 +1,5 @@
 # VelocityGuard Configuration
-# This plugin helps prevent extreme speed and flight cheats
+# This plugin helps prevent extreme speed and flight cheats.
 
 # Check settings
 checks:
@@ -11,22 +11,11 @@ checks:
     # Recommended setting: 10.0 to allow for normal sprint-jumping with a buffer
     max-horizontal-speed: 10.0
     
-    # How many seconds to cancel movement when a violation is detected
-    # This will just refuse all movement packets for this duration (very effective)
-    cancel-duration: 10
-  
-  chunk-loading:
-    # Maximum number of new chunks a player can load per second
-    # Lower values will be more strict, but may cause issues with elytra flight
-    # Recommended: 8-10 for normal servers
-    max-chunks-per-second: 8
-    
-    # Enable detailed chunk loading metrics
-    # This will log when players exceed the chunk loading threshold
-    detailed-metrics: false
+    # How many seconds to cancel movement when a violation is detected.
+    # This will just refuse all movement packets for this duration.
+    cancel-duration: 3
 
 # General settings
 settings:
-  # Enable debug mode for more detailed logging
-  # Set to true during development or when troubleshooting issues
+  # Enable for more detailed logging.
   debug-mode: true 
