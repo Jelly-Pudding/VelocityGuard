@@ -81,6 +81,18 @@ public class MovementChecker {
             airTicks.remove(playerId);
             return true;
         }
+
+        // Check if this is likely a teleport (large distance)
+        double distance = from.distance(to);
+        if (distance > 20) {
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
+            }
+            lastValidLocations.put(playerId, to.clone());
+            airTicks.remove(playerId);
+            resetSpeedHistory(playerId);
+            return true;
+        }
         
         // Track time between movements more accurately
         long currentTime = System.currentTimeMillis();
@@ -366,7 +378,7 @@ public class MovementChecker {
         // Add a buffer to reduce false positives
         return baseSpeed * 1.2;
     }
-    
+
     /**
      * Register a player with the movement checker
      * Called when a player joins or teleports
