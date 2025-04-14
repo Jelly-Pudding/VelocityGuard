@@ -17,9 +17,6 @@ public class MovementChecker {
 
     private final VelocityGuard plugin;
 
-    // Store the last valid position for each player
-    private final Map<UUID, Location> lastValidLocations = new ConcurrentHashMap<>();
-
     // Track how long players have been in the air
     private final Map<UUID, Integer> airTicks = new ConcurrentHashMap<>();
 
@@ -27,43 +24,42 @@ public class MovementChecker {
     private final Map<UUID, Queue<Double>> recentSpeeds = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
 
-    // Track previous player states
+    // Track Elytra stuff
     private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
 
     // Map to track when players can move again after a violation
     private final Map<UUID, Long> movementBlockedUntil = new ConcurrentHashMap<>();
 
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
-    
+
     // Constants for pattern detection
     private static final int SPEED_HISTORY_SIZE = 6;
     private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
     private static final double SUSPICIOUS_SPEED_RATIO = 0.85;
 
-    private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
-
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
     }
 
+    // This method only returns true if the player is allowed to move.
     public boolean processMovement(Player player, Location from, Location to) {
         if (player == null || from == null || to == null) return true;
-        UUID playerId = player.getUniqueId();
 
+        UUID playerId = player.getUniqueId();
         // Check if player is currently blocked from moving
         Long blockedUntil = movementBlockedUntil.get(playerId);
         if (blockedUntil != null && System.currentTimeMillis() < blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 long remainingTime = (blockedUntil - System.currentTimeMillis()) / 1000;
-                // Only log every 5 seconds to avoid spam
-                if (remainingTime % 5 == 0) {
+                if (remainingTime % 1 == 0) {
                     plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
                 }
             }
             return false;
         }
-        
+
         // Skip processing identical locations
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return true;
@@ -72,7 +68,6 @@ public class MovementChecker {
         // Skip for creative/spectator mode players
         if (player.getGameMode().toString().contains("CREATIVE") ||
             player.getGameMode().toString().contains("SPECTATOR")) {
-            lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
             return true;
         }
@@ -83,7 +78,6 @@ public class MovementChecker {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
             }
-            lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
             resetSpeedHistory(playerId);
             return true;
@@ -92,15 +86,14 @@ public class MovementChecker {
         long currentTime = System.currentTimeMillis();
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
-
-        // Prevent division by zero and unreasonable values
+        // Prevent division by zero and unreasonable values.
         timeDelta = Math.max(25, Math.min(timeDelta, 200));
 
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
-        // Convert to blocks per second
+        // Convert to blocks per second.
         double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
 
-        // Update speed history for pattern detection
+        // Update speed history for pattern detection.
         updateSpeedHistory(playerId, horizontalSpeed);
 
         boolean isCurrentlyGliding = player.isGliding();
@@ -153,15 +146,12 @@ public class MovementChecker {
         // If a violation was detected, immediately block all movement
         if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
             String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
-            
+
             // Block movement for the configured duration
             blockPlayerMovement(player, message);
             return false;
-        } else {
-            // No violations, update last valid location
-            lastValidLocations.put(playerId, to.clone());
         }
-        
+
         return true;
     }
 
@@ -172,7 +162,7 @@ public class MovementChecker {
 
         long currentTime = System.currentTimeMillis();
         long blockedUntil = currentTime + (blockDuration * 1000L);
-        
+
         // Use lock to ensure thread safety
         operationLock.lock();
         try {
@@ -181,8 +171,6 @@ public class MovementChecker {
             operationLock.unlock();
         }
 
-        lastValidLocations.put(playerId, player.getLocation().clone());
-        
         // Notify the player on the main thread
         new BukkitRunnable() {
             @Override
@@ -190,7 +178,7 @@ public class MovementChecker {
                 try {
                     if (player.isOnline()) {
                         player.sendMessage("§c[VelocityGuard] §f" + reason + "! Movement blocked for " + blockDuration + " seconds.");
-                        
+
                         if (plugin.isDebugEnabled()) {
                             plugin.getLogger().info("Blocked all movement for " + player.getName() + 
                                     " for " + blockDuration + " seconds. Reason: " + reason);
@@ -205,10 +193,10 @@ public class MovementChecker {
 
     private void updateSpeedHistory(UUID playerId, double speed) {
         Queue<Double> speeds = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
-        
+
         // Add the new speed to the history
         speeds.add(speed);
-        
+
         // Keep history size limited
         while (speeds.size() > SPEED_HISTORY_SIZE) {
             speeds.poll();
@@ -227,33 +215,33 @@ public class MovementChecker {
         if (history == null || history.size() < SPEED_HISTORY_SIZE) {
             return false;
         }
-        
+
         // Calculate average and check for suspiciously consistent speeds
         double sum = 0;
         double min = Double.MAX_VALUE;
         double max = Double.MIN_VALUE;
         int highSpeedCount = 0;
-        
+
         for (double speed : history) {
             sum += speed;
             min = Math.min(min, speed);
             max = Math.max(max, speed);
-            
+
             // Count how many speeds are suspiciously high
             if (speed > maxSpeed * SUSPICIOUS_SPEED_RATIO) {
                 highSpeedCount++;
             }
         }
-        
+
         double average = sum / history.size();
         double variance = max - min;
-        
+
         // Speed cheats often have suspiciously consistent speeds just under the detection threshold
         boolean suspiciouslyConsistent = variance < SPEED_VARIANCE_THRESHOLD && average > maxSpeed * SUSPICIOUS_SPEED_RATIO;
-        
+
         // Another pattern: too many movements near the maximum allowed speed
         boolean tooManyHighSpeeds = highSpeedCount >= SPEED_HISTORY_SIZE - 1;
-        
+
         return suspiciouslyConsistent || tooManyHighSpeeds;
     }
 
@@ -261,7 +249,7 @@ public class MovementChecker {
         UUID playerId = player.getUniqueId();
         boolean isNearGround = MovementUtils.isNearGround(player);
         boolean inWater = MovementUtils.isInLiquid(player);
-        
+
         // Reset air ticks if on ground or in water
         if (isNearGround || inWater) {
             airTicks.put(playerId, 0);
@@ -271,7 +259,7 @@ public class MovementChecker {
             int previousAirTicks = airTicks.getOrDefault(playerId, 0);
             int currentAirTicks = previousAirTicks + 1;
             airTicks.put(playerId, currentAirTicks);
-            
+
             // Only check for fly cheats if player has been in air for a while (not just jumping)
             // Normal jump apex is around 11-13 ticks
             if (currentAirTicks > 25) {
@@ -282,7 +270,7 @@ public class MovementChecker {
                     }
                     return currentAirTicks > 40;
                 }
-                
+
                 // Check for ascending in air (only after being in air long enough)
                 if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks > 30) {
                     if (plugin.isDebugEnabled()) {
@@ -292,22 +280,19 @@ public class MovementChecker {
                 }
             }
         }
-        
+
         return false;
     }
 
     public void registerPlayer(Player player) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
-        
-        // Store current location as valid
-        lastValidLocations.put(playerId, player.getLocation().clone());
-        
+
         // Reset tracking variables
         airTicks.put(playerId, 0);
         resetSpeedHistory(playerId);
         wasGliding.put(playerId, player.isGliding());
-        
+
         // Let them move again (in case they were previously blocked)
         movementBlockedUntil.remove(playerId);
     }
@@ -315,7 +300,6 @@ public class MovementChecker {
     public void unregisterPlayer(UUID playerId) {
         if (playerId == null) return;
 
-        lastValidLocations.remove(playerId);
         airTicks.remove(playerId);
         recentSpeeds.remove(playerId);
         lastMoveTime.remove(playerId);
@@ -324,4 +308,4 @@ public class MovementChecker {
         movementBlockedUntil.remove(playerId);
     }
 
-} 
+}

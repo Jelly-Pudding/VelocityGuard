@@ -13,6 +13,7 @@ checks:
     
     # How many seconds to cancel movement when a violation is detected.
     # This will just refuse all movement packets for this duration.
+    # Has to be an integer.
     cancel-duration: 3
 
 # General settings

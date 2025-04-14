@@ -12,7 +12,7 @@ import java.util.Set;
 public class MovementUtils {
 
     private static final Set<Material> PASSABLE_BLOCKS = new HashSet<>();
-    
+
     static {
         PASSABLE_BLOCKS.add(Material.AIR);
         PASSABLE_BLOCKS.add(Material.CAVE_AIR);
@@ -29,7 +29,7 @@ public class MovementUtils {
 
     public static boolean isNearGround(Player player) {
         Location loc = player.getLocation();
-        
+
         // Check a small area below the player
         for (double x = -0.3; x <= 0.3; x += 0.3) {
             for (double z = -0.3; z <= 0.3; z += 0.3) {
@@ -39,7 +39,7 @@ public class MovementUtils {
                 }
             }
         }
-        
+
         return false;
     }
 
@@ -47,21 +47,13 @@ public class MovementUtils {
         Location loc = player.getLocation();
         Block block = loc.getBlock();
         Block blockBelow = loc.clone().subtract(0, 0.1, 0).getBlock();
-        
+
         return block.getType() == Material.WATER || 
                block.getType() == Material.LAVA ||
                blockBelow.getType() == Material.WATER || 
                blockBelow.getType() == Material.LAVA;
     }
 
-    /**
-     * Get the maximum allowed speed for a player with all applicable modifiers
-     * @param player The player to check
-     * @param baseSpeed The base speed from config
-     * @param elytraLandingTime When the player landed from elytra flight (null if not applicable)
-     * @param currentTime The current time in milliseconds
-     * @return The maximum allowed speed with all modifiers applied
-     */
     public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime, long currentTime) {
         double maxSpeed = baseSpeed;
 
@@ -92,6 +84,7 @@ public class MovementUtils {
             maxSpeed *= 3.5;
         }
 
+        // Buffer.
         return maxSpeed * 1.2;
     }
-} 
+}
