@@ -11,8 +11,10 @@ public class ConfigManager {
     private final int cancelDuration;
     private final boolean debugMode;
 
-    private static final double DEFAULT_MAX_HORIZONTAL_SPEED = 10.0;  // Blocks per second (including sprint-jumping)
-    private static final int DEFAULT_CANCEL_DURATION = 3;  // Seconds to cancel movement
+    // Blocks per second (including sprint-jumping)
+    private static final double DEFAULT_MAX_HORIZONTAL_SPEED = 10.0;
+    // Seconds to cancel movement
+    private static final int DEFAULT_CANCEL_DURATION = 3;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;

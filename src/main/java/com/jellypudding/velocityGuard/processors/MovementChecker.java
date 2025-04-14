@@ -13,102 +13,72 @@ import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * Simple movement checker that directly prevents cheating by freezing players
- * who use speed/fly cheats until they stop cheating.
- * Optimised for minimal main thread impact.
- */
 public class MovementChecker {
-    
+
     private final VelocityGuard plugin;
-    
+
     // Store the last valid position for each player
     private final Map<UUID, Location> lastValidLocations = new ConcurrentHashMap<>();
-    
+
     // Track how long players have been in the air
     private final Map<UUID, Integer> airTicks = new ConcurrentHashMap<>();
-    
+
     // Track recent movements to detect patterns
     private final Map<UUID, Queue<Double>> recentSpeeds = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
-    
+
     // Track previous player states
     private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> takeoffTime = new ConcurrentHashMap<>();
-    private final Map<UUID, Double> preTakeoffSpeed = new ConcurrentHashMap<>();
-    
-    // Cache whether a player was detected as cheating on their last movement
-    private final Map<UUID, Boolean> isCheating = new ConcurrentHashMap<>();
-    
+
     // Map to track when players can move again after a violation
     private final Map<UUID, Long> movementBlockedUntil = new ConcurrentHashMap<>();
-    
+
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
     
     // Constants for pattern detection
     private static final int SPEED_HISTORY_SIZE = 6;
     private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
-    private static final double SUSPICIOUS_SPEED_RATIO = 0.85; // 85% of max speed consistently is suspicious
+    private static final double SUSPICIOUS_SPEED_RATIO = 0.85;
     
     // Constants for legitimate movements
-    private static final double SPRINT_JUMP_SPEED_MULTIPLIER = 1.8; // Higher multiplier for sprint jumping
-    private static final long JUMP_GRACE_PERIOD_MS = 700; // Allow 700ms of higher speed for jump boosts
-    private static final long ELYTRA_LANDING_GRACE_PERIOD_MS = 1500; // Grace period after landing from elytra flight
-    
-    // Track when players landed from elytra flight
+    private static final double SPRINT_JUMP_SPEED_MULTIPLIER = 1.8;
+    private static final long JUMP_GRACE_PERIOD_MS = 700;
+    private static final long ELYTRA_LANDING_GRACE_PERIOD_MS = 1500;
+
     private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
-    
+
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Process a player movement and check if it's valid
-     * This method is designed to run safely from any thread
-     * @param player The player who moved
-     * @param from The previous location
-     * @param to The new location
-     * @return true if the move is allowed, false if it should be cancelled
-     */
+
     public boolean processMovement(Player player, Location from, Location to) {
         if (player == null || from == null || to == null) return true;
         UUID playerId = player.getUniqueId();
-        
-        // SIMPLIFIED APPROACH - Check if player is currently blocked from moving
+
+        // Check if player is currently blocked from moving
         Long blockedUntil = movementBlockedUntil.get(playerId);
         if (blockedUntil != null && System.currentTimeMillis() < blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 long remainingTime = (blockedUntil - System.currentTimeMillis()) / 1000;
-                if (remainingTime % 5 == 0) { // Only log every 5 seconds to avoid spam
+                // Only log every 5 seconds to avoid spam
+                if (remainingTime % 5 == 0) {
                     plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
                 }
             }
-            return false; // Block all movement
+            return false;
         }
         
         // Skip processing identical locations
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return true;
         }
-        
+
         // Skip for creative/spectator mode players
         if (player.getGameMode().toString().contains("CREATIVE") ||
             player.getGameMode().toString().contains("SPECTATOR")) {
             lastValidLocations.put(playerId, to.clone());
             airTicks.remove(playerId);
-            return true;
-        }
-        
-        // Check if this is likely a teleport (large distance)
-        double distance = from.distance(to);
-        if (distance > 20) {
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
-            }
-            lastValidLocations.put(playerId, to.clone());
-            airTicks.remove(playerId);
-            resetSpeedHistory(playerId);
             return true;
         }
         
@@ -260,7 +230,6 @@ public class MovementChecker {
         } else {
             // No violations, update last valid location
             lastValidLocations.put(playerId, to.clone());
-            isCheating.put(playerId, false);
         }
         
         return true;
@@ -412,7 +381,6 @@ public class MovementChecker {
         // Reset tracking variables
         airTicks.put(playerId, 0);
         resetSpeedHistory(playerId);
-        isCheating.put(playerId, false);
         wasGliding.put(playerId, player.isGliding());
         
         // Let them move again (in case they were previously blocked)
@@ -432,10 +400,7 @@ public class MovementChecker {
         recentSpeeds.remove(playerId);
         lastMoveTime.remove(playerId);
         wasGliding.remove(playerId);
-        takeoffTime.remove(playerId);
-        preTakeoffSpeed.remove(playerId);
         elytraLandingTime.remove(playerId);
-        isCheating.remove(playerId);
         movementBlockedUntil.remove(playerId);
     }
 
