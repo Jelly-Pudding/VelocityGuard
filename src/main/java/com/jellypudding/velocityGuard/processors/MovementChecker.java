@@ -100,66 +100,18 @@ public class MovementChecker {
         // Convert to blocks per second
         double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
 
+        // Update speed history for pattern detection
+        updateSpeedHistory(playerId, horizontalSpeed);
+
         boolean isCurrentlyGliding = player.isGliding();
         boolean wasGlidingPreviously = wasGliding.getOrDefault(playerId, false);
 
         wasGliding.put(playerId, isCurrentlyGliding);
 
-        if (isCurrentlyGliding && !wasGlidingPreviously) {
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " started gliding");
-            }
-        }
-
         if (!isCurrentlyGliding && wasGlidingPreviously) {
             elytraLandingTime.put(playerId, currentTime);
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " stopped gliding (landed)");
-            }
         }
-
-        // Update speed history for pattern detection
-        updateSpeedHistory(playerId, horizontalSpeed);
         
-        // Check for flying (needs to be more forgiving for jumps)
-        boolean flyingViolation = false;
-        boolean isNearGround = MovementUtils.isNearGround(player);
-
-        // Reset air ticks if on ground
-        if (isNearGround) {
-            airTicks.put(playerId, 0);
-        } else {
-            // Check if player is likely jumping (moving upward in early air time)
-            int previousAirTicks = airTicks.getOrDefault(playerId, 0);
-            
-            // Increment air ticks if not on ground
-            int currentAirTicks = previousAirTicks + 1;
-            airTicks.put(playerId, currentAirTicks);
-            
-            // Only check for fly hacks if player has been in air for a while (not just jumping)
-            // Normal jump apex is around 11-13 ticks
-            if (currentAirTicks > 25) {
-                // Check for hovering (staying at same Y level while in air)
-                if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
-                    flyingViolation = true;
-                    
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(player.getName() + " potential hover hack: air ticks=" + currentAirTicks);
-                    }
-                }
-                
-                // Check for ascending in air (only after being in air long enough)
-                if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && 
-                    !MovementUtils.isInLiquid(player) && currentAirTicks > 30) {
-                    flyingViolation = true;
-                    
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
-                    }
-                }
-            }
-        }
-
         // Get max allowed speed with adjustments for game conditions
         double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
             player, 
@@ -168,7 +120,7 @@ public class MovementChecker {
             currentTime
         );
         
-        // Enhanced speed hack detection with multiple checks
+        // Enhanced speed cheat detection with multiple checks...
         boolean speedViolation = false;
 
         if (horizontalSpeed > maxSpeed) {
@@ -179,14 +131,6 @@ public class MovementChecker {
                 plugin.getLogger().info(player.getName() + " speed violation: " + 
                         String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
                         String.format("%.2f", maxSpeed) + ")");
-            }
-            
-            // Check if speed is severely excessive (over 2x allowed)
-            if (horizontalSpeed > maxSpeed * 2) {
-                if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info(player.getName() + " extreme speed violation: " + 
-                            String.format("%.2f", horizontalSpeed) + " blocks/s (over 2x allowed)");
-                }
             }
         }
         
@@ -199,7 +143,13 @@ public class MovementChecker {
                         String.format("%.2f", horizontalSpeed) + " blocks/s");
             }
         }
-        
+
+        // Only check for flying if there's no speed violation yet.
+        boolean flyingViolation = false;
+        if (!speedViolation) {
+            flyingViolation = checkFlying(player, from, to);
+        }
+
         // If a violation was detected, immediately block all movement
         if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
             String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
@@ -214,17 +164,12 @@ public class MovementChecker {
         
         return true;
     }
-    
-    /**
-     * Block all player movement for the configured duration
-     */
+
     private void blockPlayerMovement(Player player, String reason) {
         UUID playerId = player.getUniqueId();
-        
-        // Get block duration from config (in seconds)
+
         int blockDuration = plugin.getConfigManager().getCancelDuration();
-        
-        // Set blocked until timestamp
+
         long currentTime = System.currentTimeMillis();
         long blockedUntil = currentTime + (blockDuration * 1000L);
         
@@ -235,8 +180,7 @@ public class MovementChecker {
         } finally {
             operationLock.unlock();
         }
-        
-        // Store current location as the last valid one
+
         lastValidLocations.put(playerId, player.getLocation().clone());
         
         // Notify the player on the main thread
@@ -258,10 +202,7 @@ public class MovementChecker {
             }
         }.runTask(plugin);
     }
-    
-    /**
-     * Update speed history for a player
-     */
+
     private void updateSpeedHistory(UUID playerId, double speed) {
         Queue<Double> speeds = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
         
@@ -273,21 +214,14 @@ public class MovementChecker {
             speeds.poll();
         }
     }
-    
-    /**
-     * Reset speed history for a player
-     */
+
     private void resetSpeedHistory(UUID playerId) {
         Queue<Double> speeds = recentSpeeds.get(playerId);
         if (speeds != null) {
             speeds.clear();
         }
     }
-    
-    /**
-     * Check if player's recent movement shows a speed hack pattern
-     * Speed hacks often maintain suspiciously consistent high speeds
-     */
+
     private boolean hasSpeedPattern(UUID playerId, double maxSpeed) {
         Queue<Double> history = recentSpeeds.get(playerId);
         if (history == null || history.size() < SPEED_HISTORY_SIZE) {
@@ -314,7 +248,7 @@ public class MovementChecker {
         double average = sum / history.size();
         double variance = max - min;
         
-        // Speed hacks often have suspiciously consistent speeds just under the detection threshold
+        // Speed cheats often have suspiciously consistent speeds just under the detection threshold
         boolean suspiciouslyConsistent = variance < SPEED_VARIANCE_THRESHOLD && average > maxSpeed * SUSPICIOUS_SPEED_RATIO;
         
         // Another pattern: too many movements near the maximum allowed speed
@@ -323,10 +257,45 @@ public class MovementChecker {
         return suspiciouslyConsistent || tooManyHighSpeeds;
     }
 
-    /**
-     * Register a player with the movement checker
-     * Called when a player joins or teleports
-     */
+    private boolean checkFlying(Player player, Location from, Location to) {
+        UUID playerId = player.getUniqueId();
+        boolean isNearGround = MovementUtils.isNearGround(player);
+        boolean inWater = MovementUtils.isInLiquid(player);
+        
+        // Reset air ticks if on ground or in water
+        if (isNearGround || inWater) {
+            airTicks.put(playerId, 0);
+            return false;
+        } else {
+            // Increment air ticks if not on ground
+            int previousAirTicks = airTicks.getOrDefault(playerId, 0);
+            int currentAirTicks = previousAirTicks + 1;
+            airTicks.put(playerId, currentAirTicks);
+            
+            // Only check for fly cheats if player has been in air for a while (not just jumping)
+            // Normal jump apex is around 11-13 ticks
+            if (currentAirTicks > 25) {
+                // Check for hovering (staying at same Y level while in air)
+                if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
+                    if (plugin.isDebugEnabled()) {
+                        plugin.getLogger().info(player.getName() + " potential hover cheat: air ticks=" + currentAirTicks);
+                    }
+                    return currentAirTicks > 40;
+                }
+                
+                // Check for ascending in air (only after being in air long enough)
+                if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks > 30) {
+                    if (plugin.isDebugEnabled()) {
+                        plugin.getLogger().info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
+                    }
+                    return currentAirTicks > 40;
+                }
+            }
+        }
+        
+        return false;
+    }
+
     public void registerPlayer(Player player) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
@@ -342,15 +311,10 @@ public class MovementChecker {
         // Let them move again (in case they were previously blocked)
         movementBlockedUntil.remove(playerId);
     }
-    
-    /**
-     * Unregister a player from the movement checker
-     * Called when a player leaves the server
-     */
+
     public void unregisterPlayer(UUID playerId) {
         if (playerId == null) return;
-        
-        // Remove player from all tracking maps
+
         lastValidLocations.remove(playerId);
         airTicks.remove(playerId);
         recentSpeeds.remove(playerId);

@@ -89,7 +89,7 @@ public class MovementUtils {
         }
 
         if (elytraLandingTime != null && (currentTime - elytraLandingTime < 1500)) {
-            maxSpeed *= 2.9;
+            maxSpeed *= 3.5;
         }
 
         return maxSpeed * 1.2;
