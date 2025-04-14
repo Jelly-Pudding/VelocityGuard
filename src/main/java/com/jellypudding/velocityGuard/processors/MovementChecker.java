@@ -23,6 +23,9 @@ public class MovementChecker {
     // Track recent movements to detect patterns
     private final Map<UUID, Queue<Double>> recentSpeeds = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
+    
+    // Track recent damage time to account for knockback
+    private final Map<UUID, Long> lastDamageTime = new ConcurrentHashMap<>();
 
     // Track Elytra stuff
     private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
@@ -125,7 +128,10 @@ public class MovementChecker {
             player, 
             plugin.getConfigManager().getMaxHorizontalSpeed(),
             elytraLandingTime.get(playerId),
-            currentTime
+            lastDamageTime.get(playerId),
+            currentTime,
+            plugin.getConfigManager().getKnockbackMultiplier(),
+            plugin.getConfigManager().getKnockbackDuration()
         );
         
         // Enhanced speed cheat detection with multiple checks...
@@ -155,7 +161,8 @@ public class MovementChecker {
         // Only check for flying if there's no speed violation yet.
         boolean flyingViolation = false;
         if (!speedViolation) {
-            flyingViolation = checkFlying(player, from, to);
+            flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks, 
+                                                      plugin.isDebugEnabled(), plugin.getLogger());
         }
 
         // If a violation was detected, immediately block all movement
@@ -260,43 +267,13 @@ public class MovementChecker {
         return suspiciouslyConsistent || tooManyHighSpeeds;
     }
 
-    private boolean checkFlying(Player player, Location from, Location to) {
-        UUID playerId = player.getUniqueId();
-        boolean isNearGround = MovementUtils.isNearGround(player);
-        boolean inWater = MovementUtils.isInLiquid(player);
-
-        // Reset air ticks if on ground or in water
-        if (isNearGround || inWater) {
-            airTicks.put(playerId, 0);
-            return false;
-        } else {
-            // Increment air ticks if not on ground
-            int previousAirTicks = airTicks.getOrDefault(playerId, 0);
-            int currentAirTicks = previousAirTicks + 1;
-            airTicks.put(playerId, currentAirTicks);
-
-            // Only check for fly cheats if player has been in air for a while (not just jumping)
-            // Normal jump apex is around 11-13 ticks
-            if (currentAirTicks > 25) {
-                // Check for hovering (staying at same Y level while in air)
-                if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(player.getName() + " potential hover cheat: air ticks=" + currentAirTicks);
-                    }
-                    return currentAirTicks > 40;
-                }
-
-                // Check for ascending in air (only after being in air long enough)
-                if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks > 30) {
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
-                    }
-                    return currentAirTicks > 40;
-                }
-            }
+    public void recordPlayerDamage(Player player) {
+        if (player == null) return;
+        lastDamageTime.put(player.getUniqueId(), System.currentTimeMillis());
+        
+        if (plugin.isDebugEnabled()) {
+            plugin.getLogger().info(player.getName() + " took damage - adjusting speed threshold for knockback");
         }
-
-        return false;
     }
 
     public void registerPlayer(Player player) {
@@ -307,6 +284,7 @@ public class MovementChecker {
         airTicks.put(playerId, 0);
         resetSpeedHistory(playerId);
         wasGliding.put(playerId, player.isGliding());
+        lastDamageTime.remove(playerId);
 
         // Let them move again (in case they were previously blocked)
         movementBlockedUntil.remove(playerId);
@@ -322,6 +300,7 @@ public class MovementChecker {
         elytraLandingTime.remove(playerId);
         movementBlockedUntil.remove(playerId);
         needsReset.remove(playerId);
+        lastDamageTime.remove(playerId);
     }
 
 }

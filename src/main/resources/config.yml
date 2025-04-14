@@ -15,6 +15,13 @@ checks:
     # This will just refuse all movement packets for this duration.
     # Has to be an integer.
     cancel-duration: 3
+    
+    # Knockback handling
+    knockback:
+      # Multiplier for speed threshold after taking damage
+      multiplier: 3.5
+      # Duration in milliseconds that knockback effect lasts
+      duration: 1000
 
 # General settings
 settings:
