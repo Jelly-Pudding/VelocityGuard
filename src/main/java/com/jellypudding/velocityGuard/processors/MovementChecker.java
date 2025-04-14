@@ -31,6 +31,9 @@ public class MovementChecker {
     // Map to track when players can move again after a violation
     private final Map<UUID, Long> movementBlockedUntil = new ConcurrentHashMap<>();
 
+    // Track players who need a full data reset on their next movement after being unblocked
+    private final Map<UUID, Boolean> needsReset = new ConcurrentHashMap<>();
+
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
 
@@ -50,6 +53,7 @@ public class MovementChecker {
         UUID playerId = player.getUniqueId();
         // Check if player is currently blocked from moving
         Long blockedUntil = movementBlockedUntil.get(playerId);
+
         if (blockedUntil != null && System.currentTimeMillis() < blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 long remainingTime = (blockedUntil - System.currentTimeMillis()) / 1000;
@@ -58,6 +62,27 @@ public class MovementChecker {
                 }
             }
             return false;
+        }
+
+        // Player was blocked but now is allowed to move - mark them for reset
+        if (blockedUntil != null && System.currentTimeMillis() >= blockedUntil) {
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("Player " + player.getName() + " is now unblocked - will reset on next movement");
+            }
+            movementBlockedUntil.remove(playerId);
+            needsReset.put(playerId, true);
+            return true;
+        }
+
+        // Reset movement data on first movement after being unblocked
+        if (needsReset.remove(playerId) != null) {
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("Resetting movement data for " + player.getName() + " after unblock");
+            }
+            airTicks.remove(playerId);
+            resetSpeedHistory(playerId);
+            lastMoveTime.remove(playerId);
+            return true;
         }
 
         // Skip processing identical locations
@@ -72,20 +97,10 @@ public class MovementChecker {
             return true;
         }
 
-        // Check if this is likely a teleport (large distance)
-        double distance = from.distance(to);
-        if (distance > 20) {
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Detected teleport for " + player.getName() + " - distance: " + String.format("%.2f", distance));
-            }
-            airTicks.remove(playerId);
-            resetSpeedHistory(playerId);
-            return true;
-        }
-
         long currentTime = System.currentTimeMillis();
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
+
         // Prevent division by zero and unreasonable values.
         timeDelta = Math.max(25, Math.min(timeDelta, 200));
 
@@ -306,6 +321,7 @@ public class MovementChecker {
         wasGliding.remove(playerId);
         elytraLandingTime.remove(playerId);
         movementBlockedUntil.remove(playerId);
+        needsReset.remove(playerId);
     }
 
 }
