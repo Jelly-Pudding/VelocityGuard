@@ -40,11 +40,6 @@ public class MovementChecker {
     private static final int SPEED_HISTORY_SIZE = 6;
     private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
     private static final double SUSPICIOUS_SPEED_RATIO = 0.85;
-    
-    // Constants for legitimate movements
-    private static final double SPRINT_JUMP_SPEED_MULTIPLIER = 1.8;
-    private static final long JUMP_GRACE_PERIOD_MS = 700;
-    private static final long ELYTRA_LANDING_GRACE_PERIOD_MS = 1500;
 
     private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
 
@@ -93,56 +88,42 @@ public class MovementChecker {
             resetSpeedHistory(playerId);
             return true;
         }
-        
-        // Track time between movements more accurately
+
         long currentTime = System.currentTimeMillis();
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
-        
+
         // Prevent division by zero and unreasonable values
         timeDelta = Math.max(25, Math.min(timeDelta, 200));
-        
-        // Calculate horizontal speed
+
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
-        double horizontalSpeed = (horizontalDistance / timeDelta) * 1000; // Convert to blocks per second
-        
-        // Check for elytra takeoff (detect player starting to glide)
+        // Convert to blocks per second
+        double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
+
         boolean isCurrentlyGliding = player.isGliding();
         boolean wasGlidingPreviously = wasGliding.getOrDefault(playerId, false);
-        
-        // Update gliding state for next check
+
         wasGliding.put(playerId, isCurrentlyGliding);
-        
-        // If player just started gliding, record takeoff information
+
         if (isCurrentlyGliding && !wasGlidingPreviously) {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " started gliding");
             }
         }
-        
-        // If player just stopped gliding (landed), record the landing time
+
         if (!isCurrentlyGliding && wasGlidingPreviously) {
             elytraLandingTime.put(playerId, currentTime);
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " stopped gliding (landed)");
             }
         }
-        
-        // Get max allowed speed with adjustments for game conditions
-        double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
-            player, 
-            plugin.getConfigManager().getMaxHorizontalSpeed(),
-            elytraLandingTime.get(playerId),
-            currentTime
-        );
-        
+
         // Update speed history for pattern detection
         updateSpeedHistory(playerId, horizontalSpeed);
         
         // Check for flying (needs to be more forgiving for jumps)
         boolean flyingViolation = false;
         boolean isNearGround = MovementUtils.isNearGround(player);
-        boolean isJumping = false;
 
         // Reset air ticks if on ground
         if (isNearGround) {
@@ -150,7 +131,6 @@ public class MovementChecker {
         } else {
             // Check if player is likely jumping (moving upward in early air time)
             int previousAirTicks = airTicks.getOrDefault(playerId, 0);
-            isJumping = previousAirTicks < 10 && to.getY() > from.getY();
             
             // Increment air ticks if not on ground
             int currentAirTicks = previousAirTicks + 1;
@@ -179,47 +159,30 @@ public class MovementChecker {
                 }
             }
         }
+
+        // Get max allowed speed with adjustments for game conditions
+        double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
+            player, 
+            plugin.getConfigManager().getMaxHorizontalSpeed(),
+            elytraLandingTime.get(playerId),
+            currentTime
+        );
         
         // Enhanced speed hack detection with multiple checks
         boolean speedViolation = false;
-        
-        // Only perform regular speed check if not in jump or not in jump grace period
-        boolean isInGracePeriod = false;
-        if (isJumping || isNearGround) {
-            // Reset the jump timer when we detect a jump
-            isInGracePeriod = true;
-        } else {
-            // Check if we're still within the grace period for jump or sprint
-            long timeSinceGrounded = currentTime - lastMoveTime.getOrDefault(playerId, currentTime);
-            isInGracePeriod = timeSinceGrounded < JUMP_GRACE_PERIOD_MS;
-            
-            // Check if we just landed from elytra flight
-            Long landingTime = elytraLandingTime.get(playerId);
-            if (landingTime != null && (currentTime - landingTime < ELYTRA_LANDING_GRACE_PERIOD_MS)) {
-                isInGracePeriod = true;
-                if (plugin.isDebugEnabled() && horizontalSpeed > maxSpeed) {
-                    plugin.getLogger().info(player.getName() + " in elytra landing grace period, speed: " + 
-                            String.format("%.2f", horizontalSpeed) + " blocks/s");
-                }
-            }
-        }
-        
-        // Standard speed check (with adjusted max for jumps and sprints)
-        double speedMultiplier = isInGracePeriod ? SPRINT_JUMP_SPEED_MULTIPLIER : 1.0;
-        double allowedSpeed = maxSpeed * speedMultiplier;
-        
-        if (horizontalSpeed > allowedSpeed) {
+
+        if (horizontalSpeed > maxSpeed) {
             // First check - basic speed threshold
             speedViolation = true;
             
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " speed violation: " + 
                         String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
-                        String.format("%.2f", allowedSpeed) + ")");
+                        String.format("%.2f", maxSpeed) + ")");
             }
             
             // Check if speed is severely excessive (over 2x allowed)
-            if (horizontalSpeed > allowedSpeed * 2) {
+            if (horizontalSpeed > maxSpeed * 2) {
                 if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(player.getName() + " extreme speed violation: " + 
                             String.format("%.2f", horizontalSpeed) + " blocks/s (over 2x allowed)");
@@ -228,7 +191,7 @@ public class MovementChecker {
         }
         
         // Second check - consistent speed pattern
-        if (!speedViolation && hasSpeedPattern(playerId, allowedSpeed)) {
+        if (!speedViolation && hasSpeedPattern(playerId, maxSpeed)) {
             speedViolation = true;
             
             if (plugin.isDebugEnabled()) {
@@ -237,7 +200,7 @@ public class MovementChecker {
             }
         }
         
-        // SIMPLIFIED: If a violation was detected, immediately block all movement
+        // If a violation was detected, immediately block all movement
         if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
             String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
             
