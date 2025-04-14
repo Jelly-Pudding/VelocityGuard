@@ -129,7 +129,12 @@ public class MovementChecker {
         }
         
         // Get max allowed speed with adjustments for game conditions
-        double maxSpeed = getMaxAllowedSpeed(player);
+        double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
+            player, 
+            plugin.getConfigManager().getMaxHorizontalSpeed(),
+            elytraLandingTime.get(playerId),
+            currentTime
+        );
         
         // Update speed history for pattern detection
         updateSpeedHistory(playerId, horizontalSpeed);
@@ -138,7 +143,7 @@ public class MovementChecker {
         boolean flyingViolation = false;
         boolean isNearGround = MovementUtils.isNearGround(player);
         boolean isJumping = false;
-        
+
         // Reset air ticks if on ground
         if (isNearGround) {
             airTicks.put(playerId, 0);
@@ -353,30 +358,6 @@ public class MovementChecker {
         boolean tooManyHighSpeeds = highSpeedCount >= SPEED_HISTORY_SIZE - 1;
         
         return suspiciouslyConsistent || tooManyHighSpeeds;
-    }
-
-    /**
-     * Get the maximum allowed speed for a player
-     */
-    private double getMaxAllowedSpeed(Player player) {
-        double baseSpeed = plugin.getConfigManager().getMaxHorizontalSpeed();
-        
-        // Adjust for special conditions
-        if (player.isSprinting()) {
-            baseSpeed *= 1.3; // Allow higher speed for sprint
-        }
-        
-        if (MovementUtils.isInLiquid(player)) {
-            baseSpeed *= 0.8; // Slower in water
-        }
-        
-        if (player.isGliding()) {
-            // Now we apply a more controlled elytra speed multiplier
-            baseSpeed *= 5.0; // Allow much higher speeds when gliding
-        }
-        
-        // Add a buffer to reduce false positives
-        return baseSpeed * 1.2;
     }
 
     /**
