@@ -26,11 +26,11 @@ public class ConfigManager {
         this.debugMode = config.getBoolean("settings.debug-mode", false);
 
     }
-    
+
     public double getMaxHorizontalSpeed() {
         return maxHorizontalSpeed;
     }
-    
+
     public int getCancelDuration() {
         return cancelDuration;
     }
@@ -38,4 +38,4 @@ public class ConfigManager {
     public boolean isDebugModeEnabled() {
         return debugMode;
     }
-} 
+}

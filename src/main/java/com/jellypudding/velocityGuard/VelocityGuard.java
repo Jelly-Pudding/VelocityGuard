@@ -6,7 +6,7 @@ import com.jellypudding.velocityGuard.processors.MovementChecker;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class VelocityGuard extends JavaPlugin {
-    
+
     private ConfigManager configManager;
     private MovementChecker movementChecker;
     private PacketListener packetListener;
@@ -32,14 +32,14 @@ public final class VelocityGuard extends JavaPlugin {
         if (packetListener != null) {
             packetListener.uninject();
         }
-        
+
         getLogger().info("VelocityGuard has been disabled.");
     }
-    
+
     public ConfigManager getConfigManager() {
         return configManager;
     }
-    
+
     public MovementChecker getMovementChecker() {
         return movementChecker;
     }
