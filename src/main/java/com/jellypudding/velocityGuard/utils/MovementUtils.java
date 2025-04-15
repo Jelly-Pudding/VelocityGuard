@@ -15,6 +15,7 @@ import java.util.logging.Logger;
 public class MovementUtils {
 
     private static final Set<Material> PASSABLE_BLOCKS = new HashSet<>();
+    private static final Set<Material> ICE_BLOCKS = new HashSet<>();
 
     static {
         PASSABLE_BLOCKS.add(Material.AIR);
@@ -22,6 +23,11 @@ public class MovementUtils {
         PASSABLE_BLOCKS.add(Material.VOID_AIR);
         PASSABLE_BLOCKS.add(Material.WATER);
         PASSABLE_BLOCKS.add(Material.LAVA);
+
+        ICE_BLOCKS.add(Material.ICE);
+        ICE_BLOCKS.add(Material.PACKED_ICE);
+        ICE_BLOCKS.add(Material.BLUE_ICE);
+        ICE_BLOCKS.add(Material.FROSTED_ICE);
     }
 
     public static double calculateHorizontalDistance(Location from, Location to) {
@@ -57,11 +63,21 @@ public class MovementUtils {
                blockBelow.getType() == Material.LAVA;
     }
 
-    public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime, 
+    public static boolean isOnIce(Player player) {
+        Location loc = player.getLocation();
+
+        // Check block directly below player
+        Block blockBelow = loc.clone().subtract(0, 0.2, 0).getBlock();
+
+        return ICE_BLOCKS.contains(blockBelow.getType());
+    }
+
+    public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime,
                                      Long lastDamageTime, long currentTime,
                                      double knockbackMultiplier, int knockbackDuration,
                                      boolean isDragonDamage, boolean isVehicle,
-                                     double vehicleSpeedMultiplier, double bufferMultiplier) {
+                                     double vehicleSpeedMultiplier, double vehicleIceSpeedMultiplier,
+                                     double bufferMultiplier) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -107,9 +123,13 @@ public class MovementUtils {
             }
         }
 
-        // Increase speed for vehicles - boats can go faster on ice.
+        // Increase speed for vehicles - apply higher multiplier if on ice
         if (isVehicle) {
-            maxSpeed *= vehicleSpeedMultiplier;
+            if (isOnIce(player)) {
+                maxSpeed *= vehicleIceSpeedMultiplier;
+            } else {
+                maxSpeed *= vehicleSpeedMultiplier;
+            }
         }
 
         // Apply configurable buffer multiplier to prevent false positives

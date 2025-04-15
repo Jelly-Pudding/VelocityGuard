@@ -137,6 +137,7 @@ public class MovementChecker {
             isRecentDragonDamage,
             isVehicle,
             plugin.getConfigManager().getVehicleSpeedMultiplier(),
+            plugin.getConfigManager().getVehicleIceSpeedMultiplier(),
             plugin.getConfigManager().getBufferMultiplier()
         );
 
