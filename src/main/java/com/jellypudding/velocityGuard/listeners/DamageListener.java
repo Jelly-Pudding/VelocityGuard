@@ -8,7 +8,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.scheduler.BukkitRunnable;
 
 public class DamageListener implements Listener {
 
@@ -32,12 +31,8 @@ public class DamageListener implements Listener {
         final boolean isDragonDamage = event instanceof EntityDamageByEntityEvent && 
                 ((EntityDamageByEntityEvent) event).getDamager().getType() == EntityType.ENDER_DRAGON;
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                plugin.getMovementChecker().recordPlayerDamage(player, isDragonDamage);
-            }
-        }.runTask(plugin);
+        // Record the damage immediately to avoid race conditions with movement checks
+        plugin.getMovementChecker().recordPlayerDamage(player, isDragonDamage);
 
         if (plugin.isDebugEnabled()) {
             if (event instanceof EntityDamageByEntityEvent) {
