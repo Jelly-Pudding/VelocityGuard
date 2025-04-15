@@ -56,6 +56,10 @@ public class MovementChecker {
     public boolean processMovement(Player player, Location from, Location to, boolean isVehicle) {
         if (player == null || from == null || to == null) return true;
 
+        if (player.isDead()) {
+            return true;
+        }
+
         UUID playerId = player.getUniqueId();
         // Check if player is currently blocked from moving
         Long blockedUntil = movementBlockedUntil.get(playerId);
@@ -145,14 +149,23 @@ public class MovementChecker {
         boolean speedViolation = false;
 
         if (horizontalSpeed > maxSpeed) {
-            // First check - basic speed threshold
-            speedViolation = true;
+            // Check if the player just took damage in the past 100ms
+            // This helps prevent race conditions between damage events and movement processing
+            Long recentDamage = lastDamageTime.get(playerId);
+            boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 100);
 
-            if (plugin.isDebugEnabled()) {
-                String vehicleInfo = isVehicle ? " (in vehicle)" : "";
-                plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " + 
-                        String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
-                        String.format("%.2f", maxSpeed) + ")");
+            if (!justTookDamage) {
+                // First check - basic speed threshold
+                speedViolation = true;
+
+                if (plugin.isDebugEnabled()) {
+                    String vehicleInfo = isVehicle ? " (in vehicle)" : "";
+                    plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " + 
+                            String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
+                            String.format("%.2f", maxSpeed) + ")");
+                }
+            } else if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(player.getName() + " exceeded speed limit but was recently damaged - ignoring");
             }
         }
 
