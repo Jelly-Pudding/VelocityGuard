@@ -1,6 +1,7 @@
 package com.jellypudding.velocityGuard.listeners;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -12,11 +13,11 @@ import org.bukkit.scheduler.BukkitRunnable;
 public class DamageListener implements Listener {
 
     private final VelocityGuard plugin;
-    
+
     public DamageListener(VelocityGuard plugin) {
         this.plugin = plugin;
     }
-    
+
     /**
      * Handle all damage events to detect knockback
      */
@@ -25,13 +26,11 @@ public class DamageListener implements Listener {
         if (!(event.getEntity() instanceof Player)) {
             return;
         }
-        
+
         final Player player = (Player) event.getEntity();
-        
-        // Check for dragon damage specifically
-        final boolean isDragonDamage = event.getCause() == EntityDamageEvent.DamageCause.DRAGON_BREATH || 
-                                      (event instanceof EntityDamageByEntityEvent && 
-                                       ((EntityDamageByEntityEvent) event).getDamager().getType().name().contains("DRAGON"));
+
+        final boolean isDragonDamage = event instanceof EntityDamageByEntityEvent && 
+                ((EntityDamageByEntityEvent) event).getDamager().getType() == EntityType.ENDER_DRAGON;
 
         new BukkitRunnable() {
             @Override

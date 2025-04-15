@@ -10,20 +10,20 @@ checks:
     # Sprint-jumping can reach speeds of ~9-10 blocks/s temporarily
     # Recommended setting: 10.0 to allow for normal sprint-jumping with a buffer
     max-horizontal-speed: 10.0
-    
+
     # How many seconds to cancel movement when a violation is detected.
     # This will just refuse all movement packets for this duration.
     # Has to be an integer.
     cancel-duration: 3
-    
+
     # Knockback handling
     knockback:
       # Multiplier for speed threshold after taking damage
-      multiplier: 3.5
+      multiplier: 6.0
       # Duration in milliseconds that knockback effect lasts
       duration: 1000
 
 # General settings
 settings:
   # Enable for more detailed logging.
-  debug-mode: true 
+  debug-mode: true

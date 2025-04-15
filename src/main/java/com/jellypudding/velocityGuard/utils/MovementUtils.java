@@ -79,7 +79,7 @@ public class MovementUtils {
         }
 
         if (isInLiquid(player)) {
-            maxSpeed *= 0.8;
+            maxSpeed *= 0.95;
         }
 
         if (player.isGliding()) {
@@ -89,30 +89,25 @@ public class MovementUtils {
         if (elytraLandingTime != null && (currentTime - elytraLandingTime < 1500)) {
             maxSpeed *= 3.5;
         }
-        
-        // Apply knockback adjustment if player was recently hit
+
+        // Apply knockback adjustment if player was recently hit.
         if (lastDamageTime != null) {
             long timeSinceHit = currentTime - lastDamageTime;
-            
-            // Handle dragon damage with special high allowance
+
             if (isDragonDamage) {
-                // Dragon knockback can be extremely powerful - use very high allowance
-                // and extend the duration to 5 seconds (5000ms)
                 if (timeSinceHit < 5000) {
-                    // Allow extremely high speeds for dragon knockback
-                    return 500.0; // Allow extremely high speeds for dragon damage
+                    return 500.0;
                 }
             }
-            // Apply regular knockback adjustment if within duration window
+
             else if (timeSinceHit < knockbackDuration) {
-                // Scale down the knockback bonus over time
                 double adjustment = knockbackMultiplier * (1 - (timeSinceHit / (double)knockbackDuration));
                 maxSpeed *= (1 + adjustment);
             }
         }
 
-        // Buffer.
-        return maxSpeed * 1.3;
+        // Generous Buffer.
+        return maxSpeed * 1.35;
     }
 
     public static boolean checkFlying(Player player, Location from, Location to, 
