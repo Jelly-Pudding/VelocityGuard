@@ -30,11 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Listens for movement packets using Netty packet interception - Optimised for 1.21.4
- * Using direct Minecraft imports rather than reflection to avoid module restrictions
- * Also handles teleport events to prevent false positives
- */
+// Listens for movement packets using Netty packet interception
+// Also handles teleport events to prevent false positives
 public class PacketListener implements Listener {
 
     private final VelocityGuard plugin;
@@ -57,7 +54,7 @@ public class PacketListener implements Listener {
             thread.setDaemon(true);
             return thread;
         });
-        plugin.getLogger().info("Initialising packet listener for Minecraft 1.21.4 using direct imports");
+        plugin.getLogger().info("Initialising packet listener for Minecraft 1.21.4");
     }
 
     public void inject() {        
@@ -202,7 +199,7 @@ public class PacketListener implements Listener {
                                 }
                             }
                         }
-                        // Handle vehicle movement - direct method calls
+                        // Handle vehicle movement
                         else if (msg instanceof ServerboundMoveVehiclePacket vehiclePacket) {
                             // Only process if player is actually in a vehicle
                             Entity vehicle = player.getVehicle();
@@ -211,45 +208,27 @@ public class PacketListener implements Listener {
 
                                 // Get coordinates from the packet
                                 double packetX = vehiclePacket.position().x;
-                                double packetY = vehiclePacket.position().y;
+                                double packetY = vehiclePacket.position().y; 
                                 double packetZ = vehiclePacket.position().z;
-                                
-                                if (plugin.isDebugEnabled()) {
-                                    plugin.getLogger().info(player.getName() + " vehicle movement packet: " +
-                                            String.format("(%.2f, %.2f, %.2f)", packetX, packetY, packetZ) +
-                                            " - vehicle type: " + vehicle.getType());
-                                }
-                                
-                                // Get the vehicle's current location for comparison
+
+                                // Get current vehicle location
                                 Location vehicleLocation = vehicle.getLocation();
-                                
-                                // Create destination location from packet data
-                                Location packetLocation = new Location(
-                                    player.getWorld(), 
-                                    packetX, packetY, packetZ,
-                                    vehicleLocation.getYaw(), 
-                                    vehicleLocation.getPitch()
-                                );
-                                
-                                // Process vehicle movement using the same checks as player movement
-                                if (vehicleLocation.distanceSquared(packetLocation) > 0.001) {
-                                    // Use the player's location to approximate the movement check
+
+                                // Calculate movement vector directly
+                                double dx = packetX - vehicleLocation.getX();
+                                double dy = packetY - vehicleLocation.getY();
+                                double dz = packetZ - vehicleLocation.getZ();
+
+                                // Only check if there's actual movement
+                                if (dx*dx + dy*dy + dz*dz > 0.001) {
+                                    // Create player's current and destination locations
                                     Location playerFrom = player.getLocation();
-                                    Location playerTo = playerFrom.clone();
-                                    // Calculate vector between the positions
-                                    double dx = packetX - vehicleLocation.getX();
-                                    double dy = packetY - vehicleLocation.getY();
-                                    double dz = packetZ - vehicleLocation.getZ();
-                                    // Apply that vector to the player's position
-                                    playerTo.add(dx, dy, dz);
-                                    
+                                    Location playerTo = playerFrom.clone().add(dx, dy, dz);
+
+                                    // Check if movement is allowed
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo);
-                                    
                                     if (!allowed) {
-                                        if (plugin.isDebugEnabled()) {
-                                            plugin.getLogger().info("Blocked vehicle movement for " + player.getName());
-                                        }
-                                        // Cancel the packet
+                                        // Don't call super.channelRead - this effectively cancels the packet.
                                         return;
                                     }
                                 }
