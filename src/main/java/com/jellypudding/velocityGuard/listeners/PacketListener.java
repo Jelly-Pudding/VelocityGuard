@@ -174,23 +174,19 @@ public class PacketListener implements Listener {
                     try {
                         // Handle regular player movement
                         if (msg instanceof ServerboundMovePlayerPacket movePacket) {
-                            Location from = player.getLocation();
+                            // Only process if position has changed
+                            if (movePacket.hasPos) {
+                                double x = movePacket.x;
+                                double y = movePacket.y;
+                                double z = movePacket.z;
 
-                            double x = movePacket.hasPos ? movePacket.x : from.getX();
-                            double y = movePacket.hasPos ? movePacket.y : from.getY();
-                            double z = movePacket.hasPos ? movePacket.z : from.getZ();
-                            float yaw = movePacket.hasRot ? movePacket.yRot : from.getYaw();
-                            float pitch = movePacket.hasRot ? movePacket.xRot : from.getPitch();
-
-                            boolean positionChanged = movePacket.hasPos;
-
-                            if (positionChanged) {
-                                final Location to = new Location(player.getWorld(), x, y, z, yaw, pitch);
+                                Location from = player.getLocation();
+                                Location to = new Location(player.getWorld(), x, y, z);
 
                                 if (from.distanceSquared(to) > 0.001) {
                                     successfulPackets.incrementAndGet();
 
-                                    boolean allowed = plugin.getMovementChecker().processMovement(player, from, to);
+                                    boolean allowed = plugin.getMovementChecker().processMovement(player, from, to, false);
 
                                     if (!allowed) {
                                         // Don't call super.channelRead - this effectively cancels the packet.
@@ -225,8 +221,8 @@ public class PacketListener implements Listener {
                                     Location playerFrom = player.getLocation();
                                     Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
-                                    // Check if movement is allowed
-                                    boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo);
+                                    boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo, true);
+
                                     if (!allowed) {
                                         // Don't call super.channelRead - this effectively cancels the packet.
                                         return;

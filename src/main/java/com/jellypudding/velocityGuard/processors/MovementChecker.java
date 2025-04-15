@@ -53,7 +53,7 @@ public class MovementChecker {
     }
 
     // This method only returns true if the player is allowed to move.
-    public boolean processMovement(Player player, Location from, Location to) {
+    public boolean processMovement(Player player, Location from, Location to, boolean isVehicle) {
         if (player == null || from == null || to == null) return true;
 
         UUID playerId = player.getUniqueId();
@@ -134,7 +134,8 @@ public class MovementChecker {
             currentTime,
             plugin.getConfigManager().getKnockbackMultiplier(),
             plugin.getConfigManager().getKnockbackDuration(),
-            isRecentDragonDamage
+            isRecentDragonDamage,
+            isVehicle
         );
         
         // Check for speed violations - there are two checks.
@@ -145,7 +146,8 @@ public class MovementChecker {
             speedViolation = true;
             
             if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " speed violation: " + 
+                String vehicleInfo = isVehicle ? " (in vehicle)" : "";
+                plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " + 
                         String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
                         String.format("%.2f", maxSpeed) + ")");
             }
