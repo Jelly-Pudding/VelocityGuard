@@ -60,7 +60,7 @@ public class MovementUtils {
     public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime, 
                                      Long lastDamageTime, long currentTime,
                                      double knockbackMultiplier, int knockbackDuration,
-                                     boolean isDragonDamage) {
+                                     boolean isDragonDamage, boolean isVehicle) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -104,6 +104,11 @@ public class MovementUtils {
                 double adjustment = knockbackMultiplier * (1 - (timeSinceHit / (double)knockbackDuration));
                 maxSpeed *= (1 + adjustment);
             }
+        }
+
+        // Increase speed for vehicles - boats can go faster on ice.
+        if (isVehicle) {
+            maxSpeed *= 2.5;
         }
 
         // Generous Buffer.
