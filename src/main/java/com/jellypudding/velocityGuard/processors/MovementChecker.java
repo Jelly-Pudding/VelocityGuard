@@ -121,10 +121,10 @@ public class MovementChecker {
         if (!isCurrentlyGliding && wasGlidingPreviously) {
             elytraLandingTime.put(playerId, currentTime);
         }
-        
+
         // Check if player recently took dragon damage
         boolean isRecentDragonDamage = dragonDamage.getOrDefault(playerId, false);
-        
+
         // Get max allowed speed with adjustments for game conditions
         double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
             player, 
@@ -135,16 +135,18 @@ public class MovementChecker {
             plugin.getConfigManager().getKnockbackMultiplier(),
             plugin.getConfigManager().getKnockbackDuration(),
             isRecentDragonDamage,
-            isVehicle
+            isVehicle,
+            plugin.getConfigManager().getVehicleSpeedMultiplier(),
+            plugin.getConfigManager().getBufferMultiplier()
         );
-        
+
         // Check for speed violations - there are two checks.
         boolean speedViolation = false;
 
         if (horizontalSpeed > maxSpeed) {
             // First check - basic speed threshold
             speedViolation = true;
-            
+
             if (plugin.isDebugEnabled()) {
                 String vehicleInfo = isVehicle ? " (in vehicle)" : "";
                 plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " + 
@@ -152,11 +154,11 @@ public class MovementChecker {
                         String.format("%.2f", maxSpeed) + ")");
             }
         }
-        
+
         // Second check - consistent speed pattern
         if (!speedViolation && hasSpeedPattern(playerId, maxSpeed)) {
             speedViolation = true;
-            
+
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info(player.getName() + " has suspicious speed pattern: " + 
                         String.format("%.2f", horizontalSpeed) + " blocks/s");

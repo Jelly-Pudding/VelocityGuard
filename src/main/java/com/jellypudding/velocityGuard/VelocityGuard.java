@@ -1,5 +1,6 @@
 package com.jellypudding.velocityGuard;
 
+import com.jellypudding.velocityGuard.commands.VelocityGuardCommand;
 import com.jellypudding.velocityGuard.listeners.PacketListener;
 import com.jellypudding.velocityGuard.listeners.DamageListener;
 import com.jellypudding.velocityGuard.managers.ConfigManager;
@@ -29,6 +30,11 @@ public final class VelocityGuard extends JavaPlugin {
         // Register damage listener
         getServer().getPluginManager().registerEvents(this.damageListener, this);
 
+        // Register commands
+        VelocityGuardCommand command = new VelocityGuardCommand(this);
+        getCommand("velocityguard").setExecutor(command);
+        getCommand("velocityguard").setTabCompleter(command);
+
         getLogger().info("VelocityGuard has been enabled.");
     }
 
@@ -52,5 +58,11 @@ public final class VelocityGuard extends JavaPlugin {
 
     public boolean isDebugEnabled() {
         return configManager != null && configManager.isDebugModeEnabled();
+    }
+
+    public void reloadConfigManager() {
+        reloadConfig();
+        this.configManager = new ConfigManager(this);
+        this.movementChecker = new MovementChecker(this);
     }
 }

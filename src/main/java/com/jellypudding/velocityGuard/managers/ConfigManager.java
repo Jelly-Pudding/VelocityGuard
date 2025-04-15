@@ -11,6 +11,8 @@ public class ConfigManager {
     private final int cancelDuration;
     private final double knockbackMultiplier;
     private final int knockbackDuration;
+    private final double vehicleSpeedMultiplier;
+    private final double bufferMultiplier;
     private final boolean debugMode;
 
     // Blocks per second (including sprint-jumping)
@@ -21,6 +23,10 @@ public class ConfigManager {
     private static final double DEFAULT_KNOCKBACK_MULTIPLIER = 6.0;
     // Default knockback duration in milliseconds
     private static final int DEFAULT_KNOCKBACK_DURATION = 1000;
+    // Default vehicle speed multiplier
+    private static final double DEFAULT_VEHICLE_SPEED_MULTIPLIER = 3.6;
+    // Default buffer multiplier
+    private static final double DEFAULT_BUFFER_MULTIPLIER = 1.35;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -31,6 +37,8 @@ public class ConfigManager {
         this.cancelDuration = Math.max(1, config.getInt("checks.speed.cancel-duration", DEFAULT_CANCEL_DURATION));
         this.knockbackMultiplier = Math.max(0.5, config.getDouble("checks.speed.knockback.multiplier", DEFAULT_KNOCKBACK_MULTIPLIER));
         this.knockbackDuration = Math.max(200, config.getInt("checks.speed.knockback.duration", DEFAULT_KNOCKBACK_DURATION));
+        this.vehicleSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier", DEFAULT_VEHICLE_SPEED_MULTIPLIER));
+        this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
 
         this.debugMode = config.getBoolean("settings.debug-mode", false);
     }
@@ -53,5 +61,13 @@ public class ConfigManager {
     
     public int getKnockbackDuration() {
         return knockbackDuration;
+    }
+    
+    public double getVehicleSpeedMultiplier() {
+        return vehicleSpeedMultiplier;
+    }
+    
+    public double getBufferMultiplier() {
+        return bufferMultiplier;
     }
 }

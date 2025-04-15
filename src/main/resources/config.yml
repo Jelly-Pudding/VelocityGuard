@@ -23,7 +23,17 @@ checks:
       # Duration in milliseconds that knockback effect lasts
       duration: 1000
 
+    # Vehicle speed multiplier - increases the allowed speed for players in vehicles.
+    # Boats on ice can move reasonably fast.
+    vehicle-speed-multiplier: 3.6
+
+    # Extra buffer multiplier applied to all speed checks
+    # This provides some leeway to prevent false positives
+    # Lower values = stricter checks, higher values = more lenient
+    buffer-multiplier: 1.35
+
 # General settings
 settings:
-  # Enable for more detailed logging.
+  # Only enable if you are developing or testing the plugin
+  # as this results in verbose logging.
   debug-mode: true
