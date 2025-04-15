@@ -30,6 +30,9 @@ public class MovementChecker {
     // Track if last damage was from Ender Dragon
     private final Map<UUID, Boolean> dragonDamage = new ConcurrentHashMap<>();
 
+    // Track trident riptide usage
+    private final Map<UUID, Long> lastRiptideTime = new ConcurrentHashMap<>();
+
     // Track Elytra stuff
     private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
     private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
@@ -134,9 +137,12 @@ public class MovementChecker {
             plugin.getConfigManager().getMaxHorizontalSpeed(),
             elytraLandingTime.get(playerId),
             lastDamageTime.get(playerId),
+            lastRiptideTime.get(playerId),
             currentTime,
             plugin.getConfigManager().getKnockbackMultiplier(),
             plugin.getConfigManager().getKnockbackDuration(),
+            plugin.getConfigManager().getRiptideMultiplier(),
+            plugin.getConfigManager().getRiptideDuration(),
             isRecentDragonDamage,
             isVehicle,
             plugin.getConfigManager().getVehicleSpeedMultiplier(),
@@ -147,13 +153,15 @@ public class MovementChecker {
         // Check for speed violations - there are two checks.
         boolean speedViolation = false;
 
-        if (horizontalSpeed > maxSpeed) {
-            // Check if the player just took damage in the past 100ms.
-            // This helps prevent race conditions between damage events and movement processing.
-            Long recentDamage = lastDamageTime.get(playerId);
-            boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 100);
+        Long recentDamage = lastDamageTime.get(playerId);
+        Long recentRiptide = lastRiptideTime.get(playerId);
+        boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 150);
+        boolean justUsedRiptide = recentRiptide != null && (currentTime - recentRiptide < 150);
 
-            if (!justTookDamage) {
+        if (horizontalSpeed > maxSpeed) {
+            // Check if the player just took damage or used riptide in the past 150ms.
+            // This helps prevent race conditions between events and movement processing.
+            if (!justTookDamage && !justUsedRiptide) {
                 // First check - basic speed threshold.
                 speedViolation = true;
 
@@ -164,7 +172,8 @@ public class MovementChecker {
                             String.format("%.2f", maxSpeed) + ")");
                 }
             } else if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " exceeded speed limit but was recently damaged - ignoring.");
+                String reason = justTookDamage ? "recently damaged" : "recently used riptide";
+                plugin.getLogger().info(player.getName() + " exceeded speed limit but was " + reason + " - ignoring.");
             }
         }
 
@@ -181,8 +190,13 @@ public class MovementChecker {
         // Only check for flying if there's no speed violation yet.
         boolean flyingViolation = false;
         if (!speedViolation) {
-            flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks, 
-                                                      plugin.isDebugEnabled(), plugin.getLogger());
+            // Skip flying check if player just used riptide
+            if (!justUsedRiptide) {
+                flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks,
+                                                          plugin.isDebugEnabled(), plugin.getLogger());
+            } else if (plugin.isDebugEnabled() && airTicks.getOrDefault(playerId, 0) > 30) {
+                plugin.getLogger().info(player.getName() + " exempt from flight checks due to recent riptide use");
+            }
         }
 
         // If a violation was detected, immediately block all movement
@@ -299,6 +313,17 @@ public class MovementChecker {
         }
     }
 
+    public void recordRiptideUse(Player player) {
+        if (player == null) return;
+        UUID playerId = player.getUniqueId();
+        lastRiptideTime.put(playerId, System.currentTimeMillis());
+
+        if (plugin.isDebugEnabled()) {
+            plugin.getLogger().info(player.getName() + " used trident with riptide enchantment" +
+                    " - adjusting speed threshold");
+        }
+    }
+
     public void registerPlayer(Player player) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
@@ -308,6 +333,7 @@ public class MovementChecker {
         resetSpeedHistory(playerId);
         wasGliding.put(playerId, player.isGliding());
         lastDamageTime.remove(playerId);
+        lastRiptideTime.remove(playerId);
 
         // Let them move again (in case they were previously blocked).
         movementBlockedUntil.remove(playerId);
@@ -325,6 +351,6 @@ public class MovementChecker {
         needsReset.remove(playerId);
         lastDamageTime.remove(playerId);
         dragonDamage.remove(playerId);
+        lastRiptideTime.remove(playerId);
     }
-
 }

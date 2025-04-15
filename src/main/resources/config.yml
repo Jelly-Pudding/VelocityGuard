@@ -23,6 +23,13 @@ checks:
       # Duration in milliseconds that knockback effect lasts.
       duration: 1000
 
+    # Trident riptide handling.
+    riptide:
+      # Multiplier for speed threshold after using a trident with riptide enchantment.
+      multiplier: 8.0
+      # Duration in milliseconds that the riptide effect lasts.
+      duration: 3000
+
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.
     vehicle-speed-multiplier: 1.1
