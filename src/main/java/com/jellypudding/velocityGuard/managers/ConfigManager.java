@@ -58,19 +58,19 @@ public class ConfigManager {
     public boolean isDebugModeEnabled() {
         return debugMode;
     }
-    
+
     public double getKnockbackMultiplier() {
         return knockbackMultiplier;
     }
-    
+
     public int getKnockbackDuration() {
         return knockbackDuration;
     }
-    
+
     public double getVehicleSpeedMultiplier() {
         return vehicleSpeedMultiplier;
     }
-    
+
     public double getVehicleIceSpeedMultiplier() {
         return vehicleIceSpeedMultiplier;
     }

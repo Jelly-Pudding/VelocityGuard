@@ -2,7 +2,7 @@ name: VelocityGuard
 version: '1.0'
 main: com.jellypudding.velocityGuard.VelocityGuard
 api-version: '1.21'
-description: A simple and lightweight plugin to mitigate extreme speed cheats
+description: A simple and lightweight plugin to mitigate extreme speed and flight cheats
 author: AlphaAlex115
 
 commands:

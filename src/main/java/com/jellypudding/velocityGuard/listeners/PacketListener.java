@@ -6,11 +6,9 @@ import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -30,8 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-// Listens for movement packets using Netty packet interception
-// Also handles teleport events to prevent false positives
+// Listens for movement packets using Netty packet interception.
 public class PacketListener implements Listener {
 
     private final VelocityGuard plugin;
@@ -43,12 +40,10 @@ public class PacketListener implements Listener {
     private final AtomicInteger failedPackets = new AtomicInteger(0);
     private final AtomicInteger vehiclePackets = new AtomicInteger(0);
 
-    // Thread pool for async processing of movement checks
     private final ExecutorService asyncExecutor;
 
     public PacketListener(VelocityGuard plugin) {
         this.plugin = plugin;
-        // Create a dedicated thread pool for movement processing
         this.asyncExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread thread = new Thread(r, "VelocityGuard-Worker");
             thread.setDaemon(true);
@@ -57,11 +52,11 @@ public class PacketListener implements Listener {
         plugin.getLogger().info("Initialising packet listener for Minecraft 1.21.4");
     }
 
-    public void inject() {        
-        // Register event listener for player join/quit
+    public void inject() {
+        // Register event listener for player join/quit.
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
 
-        // Inject currently online players - process in chunks to minimize main thread impact
+        // Inject currently online players - process in chunks to minimize main thread impact.
         final Player[] onlinePlayers = plugin.getServer().getOnlinePlayers().toArray(new Player[0]);
 
         new BukkitRunnable() {
@@ -123,30 +118,6 @@ public class PacketListener implements Listener {
         });
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerTeleport(PlayerTeleportEvent event) {
-        if (event.isCancelled()) return;
-
-        final Player player = event.getPlayer();
-        final Location to = event.getTo().clone();
-
-        if (plugin.isDebugEnabled()) {
-            final Location from = event.getFrom().clone();
-            asyncExecutor.execute(() -> {
-                plugin.getLogger().info("Player teleport: " + player.getName() + 
-                        " from " + String.format("(%.2f, %.2f, %.2f)", from.getX(), from.getY(), from.getZ()) + 
-                        " to " + String.format("(%.2f, %.2f, %.2f)", to.getX(), to.getY(), to.getZ()));
-            });
-        }
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                plugin.getMovementChecker().registerPlayer(player);
-            }
-        }.runTask(plugin);
-    }
-
     public boolean injectPlayer(Player player) {
         try {
             if (!(player instanceof CraftPlayer)) {
@@ -172,9 +143,9 @@ public class PacketListener implements Listener {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                     try {
-                        // Handle regular player movement
+                        // Handle regular player movement.
                         if (msg instanceof ServerboundMovePlayerPacket movePacket) {
-                            // Only process if position has changed
+                            // Only process if position has changed.
                             if (movePacket.hasPos) {
                                 double x = movePacket.x;
                                 double y = movePacket.y;
@@ -197,27 +168,27 @@ public class PacketListener implements Listener {
                         }
                         // Handle vehicle movement
                         else if (msg instanceof ServerboundMoveVehiclePacket vehiclePacket) {
-                            // Only process if player is actually in a vehicle
+                            // Only process if player is actually in a vehicle.
                             Entity vehicle = player.getVehicle();
                             if (vehicle != null) {
                                 vehiclePackets.incrementAndGet();
 
-                                // Get coordinates from the packet
+                                // Get coordinates from the packet.
                                 double packetX = vehiclePacket.position().x;
-                                double packetY = vehiclePacket.position().y; 
+                                double packetY = vehiclePacket.position().y;
                                 double packetZ = vehiclePacket.position().z;
 
-                                // Get current vehicle location
+                                // Get current vehicle location.
                                 Location vehicleLocation = vehicle.getLocation();
 
-                                // Calculate movement vector directly
+                                // Calculate movement vector directly.
                                 double dx = packetX - vehicleLocation.getX();
                                 double dy = packetY - vehicleLocation.getY();
                                 double dz = packetZ - vehicleLocation.getZ();
 
-                                // Only check if there's actual movement
+                                // Only check if there's actual movement.
                                 if (dx*dx + dy*dy + dz*dz > 0.001) {
-                                    // Create player's current and destination locations
+                                    // Create player's current and destination locations.
                                     Location playerFrom = player.getLocation();
                                     Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
