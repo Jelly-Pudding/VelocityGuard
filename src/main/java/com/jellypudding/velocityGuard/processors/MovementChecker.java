@@ -23,7 +23,7 @@ public class MovementChecker {
     // Track recent movements to detect patterns
     private final Map<UUID, Queue<Double>> recentSpeeds = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
-    
+
     // Track recent damage time to account for knockback
     private final Map<UUID, Long> lastDamageTime = new ConcurrentHashMap<>();
 

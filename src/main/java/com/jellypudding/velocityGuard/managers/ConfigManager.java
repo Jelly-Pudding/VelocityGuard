@@ -18,7 +18,7 @@ public class ConfigManager {
     // Seconds to cancel movement
     private static final int DEFAULT_CANCEL_DURATION = 3;
     // Default knockback multiplier
-    private static final double DEFAULT_KNOCKBACK_MULTIPLIER = 3.5;
+    private static final double DEFAULT_KNOCKBACK_MULTIPLIER = 6.0;
     // Default knockback duration in milliseconds
     private static final int DEFAULT_KNOCKBACK_DURATION = 1000;
 
