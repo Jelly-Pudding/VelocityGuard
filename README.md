@@ -11,7 +11,7 @@
 - **Trident Riptide**: In some cases, using a trident with the Riptide enchantment may trigger a violation. This is due to timing issues between movement packets and the riptide event.
 
 ## Installation
-1. Download the latest release.
+1. Download the latest release [here](https://github.com/Jelly-Pudding/velocityguard/releases/latest).
 2. Place the `.jar` file in your Minecraft server's `plugins` folder.
 3. Restart your server.
 
