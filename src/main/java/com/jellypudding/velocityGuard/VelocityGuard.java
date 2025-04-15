@@ -3,6 +3,7 @@ package com.jellypudding.velocityGuard;
 import com.jellypudding.velocityGuard.commands.VelocityGuardCommand;
 import com.jellypudding.velocityGuard.listeners.PacketListener;
 import com.jellypudding.velocityGuard.listeners.DamageListener;
+import com.jellypudding.velocityGuard.listeners.TeleportListener;
 import com.jellypudding.velocityGuard.managers.ConfigManager;
 import com.jellypudding.velocityGuard.processors.MovementChecker;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -13,6 +14,7 @@ public final class VelocityGuard extends JavaPlugin {
     private MovementChecker movementChecker;
     private PacketListener packetListener;
     private DamageListener damageListener;
+    private TeleportListener teleportListener;
 
     @Override
     public void onEnable() {
@@ -23,12 +25,14 @@ public final class VelocityGuard extends JavaPlugin {
 
         this.packetListener = new PacketListener(this);
         this.damageListener = new DamageListener(this);
+        this.teleportListener = new TeleportListener(this);
 
         // Install packet handlers
         packetListener.inject();
 
-        // Register damage listener
+        // Register event listeners
         getServer().getPluginManager().registerEvents(this.damageListener, this);
+        getServer().getPluginManager().registerEvents(this.teleportListener, this);
 
         // Register commands
         VelocityGuardCommand command = new VelocityGuardCommand(this);

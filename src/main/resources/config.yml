@@ -1,7 +1,7 @@
 # VelocityGuard Configuration
 # This plugin helps prevent extreme speed and flight cheats.
 
-# Check settings
+# Configuration for detecting violations.
 checks:
   speed:
     # Maximum horizontal speed in blocks per SECOND
@@ -18,26 +18,26 @@ checks:
 
     # Knockback handling
     knockback:
-      # Multiplier for speed threshold after taking damage
+      # Multiplier for speed threshold after taking damage.
       multiplier: 6.0
-      # Duration in milliseconds that knockback effect lasts
+      # Duration in milliseconds that knockback effect lasts.
       duration: 1000
 
-    # Vehicle speed multipliers
-    # Regular vehicle speed multiplier
+    # Vehicle speed multipliers.
+    # Regular vehicle speed multiplier.
     vehicle-speed-multiplier: 1.1
 
-    # Ice vehicle speed multiplier - only applies when vehicles are on ice
-    # Boats on ice can move especially fast
+    # Ice vehicle speed multiplier - only applies when vehicles are on ice.
+    # Boats on ice can move especially fast.
     vehicle-ice-speed-multiplier: 3.6
 
-    # Extra buffer multiplier applied to all speed checks
-    # This provides some leeway to prevent false positives
-    # Lower values = stricter checks, higher values = more lenient
+    # Extra buffer multiplier applied to all speed checks.
+    # This provides some leeway to prevent false positives.
+    # Lower values = stricter checks, higher values = more lenient.
     buffer-multiplier: 1.35
 
-# General settings
+# General settings.
 settings:
   # Only enable if you are developing or testing the plugin
   # as this results in verbose logging.
-  debug-mode: true
+  debug-mode: false

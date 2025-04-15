@@ -39,7 +39,7 @@ public class MovementUtils {
     public static boolean isNearGround(Player player) {
         Location loc = player.getLocation();
 
-        // Check a small area below the player
+        // Check a small area below the player.
         for (double x = -0.3; x <= 0.3; x += 0.3) {
             for (double z = -0.3; z <= 0.3; z += 0.3) {
                 Block block = loc.clone().add(x, -0.5, z).getBlock();
@@ -57,16 +57,16 @@ public class MovementUtils {
         Block block = loc.getBlock();
         Block blockBelow = loc.clone().subtract(0, 0.1, 0).getBlock();
 
-        return block.getType() == Material.WATER || 
+        return block.getType() == Material.WATER ||
                block.getType() == Material.LAVA ||
-               blockBelow.getType() == Material.WATER || 
+               blockBelow.getType() == Material.WATER ||
                blockBelow.getType() == Material.LAVA;
     }
 
     public static boolean isOnIce(Player player) {
         Location loc = player.getLocation();
 
-        // Check block directly below player
+        // Check block directly below player.
         Block blockBelow = loc.clone().subtract(0, 0.2, 0).getBlock();
 
         return ICE_BLOCKS.contains(blockBelow.getType());
@@ -123,7 +123,7 @@ public class MovementUtils {
             }
         }
 
-        // Increase speed for vehicles - apply higher multiplier if on ice
+        // Increase speed for vehicles - apply higher multiplier if on ice.
         if (isVehicle) {
             if (isOnIce(player)) {
                 maxSpeed *= vehicleIceSpeedMultiplier;
@@ -132,11 +132,11 @@ public class MovementUtils {
             }
         }
 
-        // Apply configurable buffer multiplier to prevent false positives
+        // Apply configurable buffer multiplier to prevent false positives.
         return maxSpeed * bufferMultiplier;
     }
 
-    public static boolean checkFlying(Player player, Location from, Location to, 
+    public static boolean checkFlying(Player player, Location from, Location to,
                                      Map<UUID, Integer> airTicksMap,
                                      boolean debugEnabled, Logger logger) {
         UUID playerId = player.getUniqueId();
@@ -150,20 +150,20 @@ public class MovementUtils {
             return false;
         }
 
-        // Reset air ticks if on ground or in water
+        // Reset air ticks if on ground or in water.
         if (isNearGround || inWater) {
             airTicksMap.put(playerId, 0);
             return false;
         } else {
-            // Increment air ticks if not on ground
+            // Increment air ticks if not on ground.
             int previousAirTicks = airTicksMap.getOrDefault(playerId, 0);
             int currentAirTicks = previousAirTicks + 1;
             airTicksMap.put(playerId, currentAirTicks);
 
-            // Only check for fly cheats if player has been in air for a while (not just jumping)
-            // Normal jump apex is around 11-13 ticks
+            // Only check for fly cheats if player has been in air for a while (not just jumping).
+            // Normal jump apex is around 11-13 ticks.
             if (currentAirTicks > 25) {
-                // Check for hovering (staying at same Y level while in air)
+                // Check for hovering (staying at same Y level while in air).
                 if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
                     if (debugEnabled) {
                         logger.info(player.getName() + " potential hover cheat: air ticks=" + currentAirTicks);
@@ -171,7 +171,7 @@ public class MovementUtils {
                     return currentAirTicks > 40;
                 }
 
-                // Check for ascending in air (only after being in air long enough)
+                // Check for ascending in air (only after being in air long enough).
                 if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks > 30) {
                     if (debugEnabled) {
                         logger.info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");

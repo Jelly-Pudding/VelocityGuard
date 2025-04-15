@@ -93,43 +93,42 @@ public class MovementChecker {
             return true;
         }
 
-        // Skip processing identical locations
+        // Skip processing identical locations.
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return true;
         }
 
-        // Skip for creative/spectator mode players
+        // Skip for creative/spectator mode players.
         if (player.getGameMode().toString().contains("CREATIVE") ||
             player.getGameMode().toString().contains("SPECTATOR")) {
             airTicks.remove(playerId);
             return true;
         }
 
+        // Calculate blocks per second.
         long currentTime = System.currentTimeMillis();
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
-
         // Prevent division by zero and unreasonable values.
         timeDelta = Math.max(25, Math.min(timeDelta, 200));
-
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
-        // Convert to blocks per second.
+        // Blocks per second.
         double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
 
         // Update speed history for pattern detection.
         updateSpeedHistory(playerId, horizontalSpeed);
 
+        // Track elytra and dragon damage
+        // which will be used to calculate the maximum allowed speed.
         boolean isCurrentlyGliding = player.isGliding();
         boolean wasGlidingPreviously = wasGliding.getOrDefault(playerId, false);
         wasGliding.put(playerId, isCurrentlyGliding);
         if (!isCurrentlyGliding && wasGlidingPreviously) {
             elytraLandingTime.put(playerId, currentTime);
         }
-
-        // Check if player recently took dragon damage
         boolean isRecentDragonDamage = dragonDamage.getOrDefault(playerId, false);
 
-        // Get max allowed speed with adjustments for game conditions
+        // Get max allowed speed with adjustments for game conditions.
         double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
             player, 
             plugin.getConfigManager().getMaxHorizontalSpeed(),
@@ -149,13 +148,13 @@ public class MovementChecker {
         boolean speedViolation = false;
 
         if (horizontalSpeed > maxSpeed) {
-            // Check if the player just took damage in the past 100ms
-            // This helps prevent race conditions between damage events and movement processing
+            // Check if the player just took damage in the past 100ms.
+            // This helps prevent race conditions between damage events and movement processing.
             Long recentDamage = lastDamageTime.get(playerId);
             boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 100);
 
             if (!justTookDamage) {
-                // First check - basic speed threshold
+                // First check - basic speed threshold.
                 speedViolation = true;
 
                 if (plugin.isDebugEnabled()) {
@@ -165,11 +164,11 @@ public class MovementChecker {
                             String.format("%.2f", maxSpeed) + ")");
                 }
             } else if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " exceeded speed limit but was recently damaged - ignoring");
+                plugin.getLogger().info(player.getName() + " exceeded speed limit but was recently damaged - ignoring.");
             }
         }
 
-        // Second check - consistent speed pattern
+        // Second check - consistent speed pattern.
         if (!speedViolation && hasSpeedPattern(playerId, maxSpeed)) {
             speedViolation = true;
 
@@ -222,7 +221,7 @@ public class MovementChecker {
                         player.sendMessage("§c[VelocityGuard] §f" + reason + "! Movement blocked for " + blockDuration + " seconds.");
 
                         if (plugin.isDebugEnabled()) {
-                            plugin.getLogger().info("Blocked all movement for " + player.getName() + 
+                            plugin.getLogger().info("Blocked all movement for " + player.getName() +
                                     " for " + blockDuration + " seconds. Reason: " + reason);
                         }
                     }
@@ -236,10 +235,10 @@ public class MovementChecker {
     private void updateSpeedHistory(UUID playerId, double speed) {
         Queue<Double> speeds = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
 
-        // Add the new speed to the history
+        // Add the new speed to the history.
         speeds.add(speed);
 
-        // Keep history size limited
+        // Keep history size limited.
         while (speeds.size() > SPEED_HISTORY_SIZE) {
             speeds.poll();
         }
@@ -258,7 +257,7 @@ public class MovementChecker {
             return false;
         }
 
-        // Calculate average and check for suspiciously consistent speeds
+        // Calculate average and check for suspiciously consistent speeds.
         double sum = 0;
         double min = Double.MAX_VALUE;
         double max = Double.MIN_VALUE;
@@ -269,7 +268,7 @@ public class MovementChecker {
             min = Math.min(min, speed);
             max = Math.max(max, speed);
 
-            // Count how many speeds are suspiciously high
+            // Count how many speeds are suspiciously high.
             if (speed > maxSpeed * SUSPICIOUS_SPEED_RATIO) {
                 highSpeedCount++;
             }
@@ -278,28 +277,24 @@ public class MovementChecker {
         double average = sum / history.size();
         double variance = max - min;
 
-        // Speed cheats often have suspiciously consistent speeds just under the detection threshold
+        // Speed cheats often have suspiciously consistent speeds just under the detection threshold.
         boolean suspiciouslyConsistent = variance < SPEED_VARIANCE_THRESHOLD && average > maxSpeed * SUSPICIOUS_SPEED_RATIO;
 
-        // Another pattern: too many movements near the maximum allowed speed
+        // Another pattern: too many movements near the maximum allowed speed.
         boolean tooManyHighSpeeds = highSpeedCount >= SPEED_HISTORY_SIZE - 1;
 
         return suspiciouslyConsistent || tooManyHighSpeeds;
     }
 
-    public void recordPlayerDamage(Player player) {
-        recordPlayerDamage(player, false);
-    }
-    
     public void recordPlayerDamage(Player player, boolean isDragonDamage) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
         lastDamageTime.put(playerId, System.currentTimeMillis());
         dragonDamage.put(playerId, isDragonDamage);
-        
+
         if (plugin.isDebugEnabled()) {
-            plugin.getLogger().info(player.getName() + " took damage" + 
-                    (isDragonDamage ? " from dragon" : "") + 
+            plugin.getLogger().info(player.getName() + " took damage" +
+                    (isDragonDamage ? " from dragon" : "") +
                     " - adjusting speed threshold for knockback");
         }
     }
@@ -308,13 +303,13 @@ public class MovementChecker {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
 
-        // Reset tracking variables
+        // Reset tracking variables.
         airTicks.put(playerId, 0);
         resetSpeedHistory(playerId);
         wasGliding.put(playerId, player.isGliding());
         lastDamageTime.remove(playerId);
 
-        // Let them move again (in case they were previously blocked)
+        // Let them move again (in case they were previously blocked).
         movementBlockedUntil.remove(playerId);
     }
 
