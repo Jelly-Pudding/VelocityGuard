@@ -18,7 +18,7 @@ public class DamageListener implements Listener {
     }
 
     // For detecting knockback.
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) {
             return;

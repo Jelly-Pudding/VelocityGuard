@@ -5,7 +5,10 @@
 - **Direct Detection**: Detects cheating in real-time at the packet level.
 - **Movement Blocking**: Temporarily blocks movement when violations are detected.
 - **Pattern Detection**: Identifies suspicious movement patterns.
-- **Adaptive System**: Handles knockback, boats, horses, potions, and special movement states (swimming, flying, elytra gliding).
+- **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
+
+## Known Issues
+- **Trident Riptide**: In some cases, using a trident with the Riptide enchantment may trigger a violation. This is due to timing issues between movement packets and the riptide event.
 
 ## Installation
 1. Download the latest release.
@@ -35,6 +38,13 @@ checks:
       multiplier: 6.0
       # Duration in milliseconds that knockback effect lasts.
       duration: 1000
+
+    # Trident riptide handling.
+    riptide:
+      # Multiplier for speed threshold after using a trident with riptide enchantment.
+      multiplier: 8.0
+      # Duration in milliseconds that the riptide effect lasts.
+      duration: 3000
 
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.

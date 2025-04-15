@@ -73,8 +73,9 @@ public class MovementUtils {
     }
 
     public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime,
-                                     Long lastDamageTime, long currentTime,
+                                     Long lastDamageTime, Long lastRiptideTime, long currentTime,
                                      double knockbackMultiplier, int knockbackDuration,
+                                     double riptideMultiplier, int riptideDuration,
                                      boolean isDragonDamage, boolean isVehicle,
                                      double vehicleSpeedMultiplier, double vehicleIceSpeedMultiplier,
                                      double bufferMultiplier) {
@@ -119,6 +120,16 @@ public class MovementUtils {
 
             else if (timeSinceHit < knockbackDuration) {
                 double adjustment = knockbackMultiplier * (1 - (timeSinceHit / (double)knockbackDuration));
+                maxSpeed *= (1 + adjustment);
+            }
+        }
+
+        // Apply riptide adjustment if player recently used trident.
+        if (lastRiptideTime != null) {
+            long timeSinceRiptide = currentTime - lastRiptideTime;
+
+            if (timeSinceRiptide < riptideDuration) {
+                double adjustment = riptideMultiplier * (1 - (timeSinceRiptide / (double)riptideDuration));
                 maxSpeed *= (1 + adjustment);
             }
         }
