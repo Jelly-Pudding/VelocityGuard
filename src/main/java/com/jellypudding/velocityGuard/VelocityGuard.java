@@ -25,7 +25,7 @@ public final class VelocityGuard extends JavaPlugin {
 
         // Install packet handlers
         packetListener.inject();
-        
+
         // Register damage listener
         getServer().getPluginManager().registerEvents(this.damageListener, this);
 

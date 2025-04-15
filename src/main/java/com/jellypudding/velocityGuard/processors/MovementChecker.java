@@ -27,6 +27,9 @@ public class MovementChecker {
     // Track recent damage time to account for knockback
     private final Map<UUID, Long> lastDamageTime = new ConcurrentHashMap<>();
 
+    // Track if last damage was from Ender Dragon
+    private final Map<UUID, Boolean> dragonDamage = new ConcurrentHashMap<>();
+
     // Track Elytra stuff
     private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
     private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
@@ -67,7 +70,6 @@ public class MovementChecker {
             return false;
         }
 
-        // Player was blocked but now is allowed to move - mark them for reset
         if (blockedUntil != null && System.currentTimeMillis() >= blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Player " + player.getName() + " is now unblocked - will reset on next movement");
@@ -77,7 +79,6 @@ public class MovementChecker {
             return true;
         }
 
-        // Reset movement data on first movement after being unblocked
         if (needsReset.remove(playerId) != null) {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Resetting movement data for " + player.getName() + " after unblock");
@@ -116,12 +117,13 @@ public class MovementChecker {
 
         boolean isCurrentlyGliding = player.isGliding();
         boolean wasGlidingPreviously = wasGliding.getOrDefault(playerId, false);
-
         wasGliding.put(playerId, isCurrentlyGliding);
-
         if (!isCurrentlyGliding && wasGlidingPreviously) {
             elytraLandingTime.put(playerId, currentTime);
         }
+        
+        // Check if player recently took dragon damage
+        boolean isRecentDragonDamage = dragonDamage.getOrDefault(playerId, false);
         
         // Get max allowed speed with adjustments for game conditions
         double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
@@ -131,10 +133,11 @@ public class MovementChecker {
             lastDamageTime.get(playerId),
             currentTime,
             plugin.getConfigManager().getKnockbackMultiplier(),
-            plugin.getConfigManager().getKnockbackDuration()
+            plugin.getConfigManager().getKnockbackDuration(),
+            isRecentDragonDamage
         );
         
-        // Enhanced speed cheat detection with multiple checks...
+        // Check for speed violations - there are two checks.
         boolean speedViolation = false;
 
         if (horizontalSpeed > maxSpeed) {
@@ -193,7 +196,6 @@ public class MovementChecker {
             operationLock.unlock();
         }
 
-        // Notify the player on the main thread
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -268,11 +270,19 @@ public class MovementChecker {
     }
 
     public void recordPlayerDamage(Player player) {
+        recordPlayerDamage(player, false);
+    }
+    
+    public void recordPlayerDamage(Player player, boolean isDragonDamage) {
         if (player == null) return;
-        lastDamageTime.put(player.getUniqueId(), System.currentTimeMillis());
+        UUID playerId = player.getUniqueId();
+        lastDamageTime.put(playerId, System.currentTimeMillis());
+        dragonDamage.put(playerId, isDragonDamage);
         
         if (plugin.isDebugEnabled()) {
-            plugin.getLogger().info(player.getName() + " took damage - adjusting speed threshold for knockback");
+            plugin.getLogger().info(player.getName() + " took damage" + 
+                    (isDragonDamage ? " from dragon" : "") + 
+                    " - adjusting speed threshold for knockback");
         }
     }
 
@@ -301,6 +311,7 @@ public class MovementChecker {
         movementBlockedUntil.remove(playerId);
         needsReset.remove(playerId);
         lastDamageTime.remove(playerId);
+        dragonDamage.remove(playerId);
     }
 
 }

@@ -59,7 +59,8 @@ public class MovementUtils {
 
     public static double getMaxHorizontalSpeed(Player player, double baseSpeed, Long elytraLandingTime, 
                                      Long lastDamageTime, long currentTime,
-                                     double knockbackMultiplier, int knockbackDuration) {
+                                     double knockbackMultiplier, int knockbackDuration,
+                                     boolean isDragonDamage) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -93,8 +94,17 @@ public class MovementUtils {
         if (lastDamageTime != null) {
             long timeSinceHit = currentTime - lastDamageTime;
             
-            // Apply knockback adjustment if within duration window
-            if (timeSinceHit < knockbackDuration) {
+            // Handle dragon damage with special high allowance
+            if (isDragonDamage) {
+                // Dragon knockback can be extremely powerful - use very high allowance
+                // and extend the duration to 5 seconds (5000ms)
+                if (timeSinceHit < 5000) {
+                    // Allow extremely high speeds for dragon knockback
+                    return 500.0; // Allow extremely high speeds for dragon damage
+                }
+            }
+            // Apply regular knockback adjustment if within duration window
+            else if (timeSinceHit < knockbackDuration) {
                 // Scale down the knockback bonus over time
                 double adjustment = knockbackMultiplier * (1 - (timeSinceHit / (double)knockbackDuration));
                 maxSpeed *= (1 + adjustment);
@@ -112,7 +122,6 @@ public class MovementUtils {
         boolean isNearGround = isNearGround(player);
         boolean inWater = isInLiquid(player);
 
-        // Skip all flight checks if player has the levitation effect
         if (player.hasPotionEffect(PotionEffectType.LEVITATION)) {
             if (debugEnabled && airTicksMap.getOrDefault(playerId, 0) > 25) {
                 logger.info(player.getName() + " has levitation effect - ignoring flight checks");

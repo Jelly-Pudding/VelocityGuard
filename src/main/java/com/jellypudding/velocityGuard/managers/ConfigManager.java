@@ -9,9 +9,9 @@ public class ConfigManager {
 
     private final double maxHorizontalSpeed;
     private final int cancelDuration;
-    private final boolean debugMode;
     private final double knockbackMultiplier;
     private final int knockbackDuration;
+    private final boolean debugMode;
 
     // Blocks per second (including sprint-jumping)
     private static final double DEFAULT_MAX_HORIZONTAL_SPEED = 10.0;
@@ -29,9 +29,10 @@ public class ConfigManager {
 
         this.maxHorizontalSpeed = Math.max(4.0, config.getDouble("checks.speed.max-horizontal-speed", DEFAULT_MAX_HORIZONTAL_SPEED));
         this.cancelDuration = Math.max(1, config.getInt("checks.speed.cancel-duration", DEFAULT_CANCEL_DURATION));
-        this.debugMode = config.getBoolean("settings.debug-mode", false);
         this.knockbackMultiplier = Math.max(0.5, config.getDouble("checks.speed.knockback.multiplier", DEFAULT_KNOCKBACK_MULTIPLIER));
         this.knockbackDuration = Math.max(200, config.getInt("checks.speed.knockback.duration", DEFAULT_KNOCKBACK_DURATION));
+
+        this.debugMode = config.getBoolean("settings.debug-mode", false);
     }
 
     public double getMaxHorizontalSpeed() {

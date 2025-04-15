@@ -28,24 +28,29 @@ public class DamageListener implements Listener {
         
         final Player player = (Player) event.getEntity();
         
-        // Record damage asynchronously to minimize impact on the main thread
+        // Check for dragon damage specifically
+        final boolean isDragonDamage = event.getCause() == EntityDamageEvent.DamageCause.DRAGON_BREATH || 
+                                      (event instanceof EntityDamageByEntityEvent && 
+                                       ((EntityDamageByEntityEvent) event).getDamager().getType().name().contains("DRAGON"));
+
         new BukkitRunnable() {
             @Override
             public void run() {
-                plugin.getMovementChecker().recordPlayerDamage(player);
+                plugin.getMovementChecker().recordPlayerDamage(player, isDragonDamage);
             }
         }.runTask(plugin);
-        
-        // Add extended debug information for different damage types
+
         if (plugin.isDebugEnabled()) {
             if (event instanceof EntityDamageByEntityEvent) {
                 EntityDamageByEntityEvent entityEvent = (EntityDamageByEntityEvent) event;
                 plugin.getLogger().info(player.getName() + " was hit by " + 
-                        entityEvent.getDamager().getName() + " for " + event.getDamage() + " damage");
+                        entityEvent.getDamager().getName() + " for " + event.getDamage() + " damage" +
+                        (isDragonDamage ? " (dragon damage)" : ""));
             } else if (event.getCause() != EntityDamageEvent.DamageCause.CUSTOM) {
                 plugin.getLogger().info(player.getName() + " took damage: " + 
-                        event.getCause() + " for " + event.getDamage() + " damage");
+                        event.getCause() + " for " + event.getDamage() + " damage" +
+                        (isDragonDamage ? " (dragon damage)" : ""));
             }
         }
     }
-} 
+}
