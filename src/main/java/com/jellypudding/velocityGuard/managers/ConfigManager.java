@@ -19,6 +19,7 @@ public class ConfigManager {
     private final boolean debugMode;
 
     private final boolean enableLatencyCompensation;
+    private final double veryLowPingCompensation;
     private final double lowPingCompensation;
     private final double mediumPingCompensation;
     private final double highPingCompensation;
@@ -42,15 +43,16 @@ public class ConfigManager {
     // Default vehicle ice speed multiplier
     private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 3.6;
     // Default buffer multiplier
-    private static final double DEFAULT_BUFFER_MULTIPLIER = 1.5;
+    private static final double DEFAULT_BUFFER_MULTIPLIER = 2.5;
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
-    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.3;
-    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.5;
-    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.8;
-    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 2.2;
-    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 2.5;
+    private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 1.5;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 2.0;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 3.0;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 4.0;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 5.0;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 6.0;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -68,6 +70,7 @@ public class ConfigManager {
         this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
 
         this.enableLatencyCompensation = config.getBoolean("checks.speed.latency-compensation.enabled", DEFAULT_ENABLE_LATENCY_COMPENSATION);
+        this.veryLowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-low-ping", DEFAULT_VERY_LOW_PING_COMPENSATION));
         this.lowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.low-ping", DEFAULT_LOW_PING_COMPENSATION));
         this.mediumPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.medium-ping", DEFAULT_MEDIUM_PING_COMPENSATION));
         this.highPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.high-ping", DEFAULT_HIGH_PING_COMPENSATION));
@@ -119,6 +122,10 @@ public class ConfigManager {
 
     public boolean isLatencyCompensationEnabled() {
         return enableLatencyCompensation;
+    }
+
+    public double getVeryLowPingCompensation() {
+        return veryLowPingCompensation;
     }
 
     public double getLowPingCompensation() {

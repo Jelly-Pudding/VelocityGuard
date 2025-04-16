@@ -151,6 +151,7 @@ public class MovementChecker {
             plugin.getConfigManager().getBufferMultiplier(),
             ping,
             plugin.getConfigManager().isLatencyCompensationEnabled(),
+            plugin.getConfigManager().getVeryLowPingCompensation(),
             plugin.getConfigManager().getLowPingCompensation(),
             plugin.getConfigManager().getMediumPingCompensation(),
             plugin.getConfigManager().getHighPingCompensation(),

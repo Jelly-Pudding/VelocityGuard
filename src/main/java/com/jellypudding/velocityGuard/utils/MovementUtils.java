@@ -89,7 +89,7 @@ public class MovementUtils {
                                      double bufferMultiplier, int ping, boolean latencyCompensationEnabled,
                                      double lowPingCompensation, double mediumPingCompensation,
                                      double highPingCompensation, double veryHighPingCompensation,
-                                     double extremePingCompensation) {
+                                     double extremePingCompensation, double veryLowPingCompensation) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -163,7 +163,7 @@ public class MovementUtils {
             if (ping <= 20) {
                 latencyCompensationFactor = 1.0;
             } else if (ping <= 50) {
-                latencyCompensationFactor = 1.1;
+                latencyCompensationFactor = veryLowPingCompensation;
             } else if (ping <= 100) {
                 latencyCompensationFactor = lowPingCompensation;
             } else if (ping <= 200) {
