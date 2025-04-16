@@ -13,9 +13,12 @@ public class ConfigManager {
     private final int knockbackDuration;
     private final double riptideMultiplier;
     private final int riptideDuration;
+    private final double elytraGlidingMultiplier;
+    private final int elytraLandingDuration;
     private final double vehicleSpeedMultiplier;
     private final double vehicleIceSpeedMultiplier;
     private final double bufferMultiplier;
+    private final int burstTolerance;
     private final boolean debugMode;
 
     private final boolean enableLatencyCompensation;
@@ -38,21 +41,27 @@ public class ConfigManager {
     private static final double DEFAULT_RIPTIDE_MULTIPLIER = 8.0;
     // Default riptide duration in milliseconds
     private static final int DEFAULT_RIPTIDE_DURATION = 3000;
+    // Default elytra gliding multiplier
+    private static final double DEFAULT_ELYTRA_GLIDING_MULTIPLIER = 3.0;
+    // Default elytra landing duration in milliseconds
+    private static final int DEFAULT_ELYTRA_LANDING_DURATION = 1500;
     // Default vehicle speed multiplier
     private static final double DEFAULT_VEHICLE_SPEED_MULTIPLIER = 1.1;
     // Default vehicle ice speed multiplier
     private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 3.6;
     // Default buffer multiplier
-    private static final double DEFAULT_BUFFER_MULTIPLIER = 2.5;
+    private static final double DEFAULT_BUFFER_MULTIPLIER = 1.1;
+    // Default burst tolerance
+    private static final int DEFAULT_BURST_TOLERANCE = 6;
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
-    private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 2.5;
-    private static final double DEFAULT_LOW_PING_COMPENSATION = 5.8;
-    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 5.9;
-    private static final double DEFAULT_HIGH_PING_COMPENSATION = 5.9;
-    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 5.9;
-    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 5.9;
+    private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 1.1;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.15;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.2;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.25;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 1.3;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 1.35;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -65,9 +74,12 @@ public class ConfigManager {
         this.knockbackDuration = Math.max(200, config.getInt("checks.speed.knockback.duration", DEFAULT_KNOCKBACK_DURATION));
         this.riptideMultiplier = Math.max(1.0, config.getDouble("checks.speed.riptide.multiplier", DEFAULT_RIPTIDE_MULTIPLIER));
         this.riptideDuration = Math.max(500, config.getInt("checks.speed.riptide.duration", DEFAULT_RIPTIDE_DURATION));
+        this.elytraGlidingMultiplier = Math.max(1.0, config.getDouble("checks.speed.elytra.gliding-multiplier", DEFAULT_ELYTRA_GLIDING_MULTIPLIER));
+        this.elytraLandingDuration = Math.max(500, config.getInt("checks.speed.elytra.landing-duration", DEFAULT_ELYTRA_LANDING_DURATION));
         this.vehicleSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier", DEFAULT_VEHICLE_SPEED_MULTIPLIER));
         this.vehicleIceSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-ice-speed-multiplier", DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER));
         this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
+        this.burstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance", DEFAULT_BURST_TOLERANCE));
 
         this.enableLatencyCompensation = config.getBoolean("checks.speed.latency-compensation.enabled", DEFAULT_ENABLE_LATENCY_COMPENSATION);
         this.veryLowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-low-ping", DEFAULT_VERY_LOW_PING_COMPENSATION));
@@ -107,6 +119,14 @@ public class ConfigManager {
     public int getRiptideDuration() {
         return riptideDuration;
     }
+    
+    public double getElytraGlidingMultiplier() {
+        return elytraGlidingMultiplier;
+    }
+    
+    public int getElytraLandingDuration() {
+        return elytraLandingDuration;
+    }
 
     public double getVehicleSpeedMultiplier() {
         return vehicleSpeedMultiplier;
@@ -118,6 +138,10 @@ public class ConfigManager {
 
     public double getBufferMultiplier() {
         return bufferMultiplier;
+    }
+
+    public int getBurstTolerance() {
+        return burstTolerance;
     }
 
     public boolean isLatencyCompensationEnabled() {

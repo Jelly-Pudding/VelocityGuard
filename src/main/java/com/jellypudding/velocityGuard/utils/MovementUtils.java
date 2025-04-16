@@ -89,7 +89,8 @@ public class MovementUtils {
                                      double bufferMultiplier, int ping, boolean latencyCompensationEnabled,
                                      double lowPingCompensation, double mediumPingCompensation,
                                      double highPingCompensation, double veryHighPingCompensation,
-                                     double extremePingCompensation, double veryLowPingCompensation) {
+                                     double extremePingCompensation, double veryLowPingCompensation,
+                                     double elytraGlidingMultiplier, int elytraLandingDuration) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -112,10 +113,10 @@ public class MovementUtils {
         }
 
         if (player.isGliding()) {
-            maxSpeed *= 5.0;
+            maxSpeed *= elytraGlidingMultiplier;
         }
 
-        if (elytraLandingTime != null && (currentTime - elytraLandingTime < 1500)) {
+        if (elytraLandingTime != null && (currentTime - elytraLandingTime < elytraLandingDuration)) {
             maxSpeed *= 3.5;
         }
 
@@ -154,9 +155,18 @@ public class MovementUtils {
             }
         }
 
-        // Apply configurable buffer multiplier to prevent false positives.
+        // Apply configurable base buffer multiplier to prevent false positives.
         maxSpeed *= bufferMultiplier;
 
+        // Apply dynamic speed-based buffer for higher speeds.
+        // This helps with momentary speed spikes at higher velocities.
+        if (maxSpeed > 20.0) {
+            // Add additional tolerance for higher speeds (non-linear scaling).
+            double dynamicBuffer = 1.0 + ((maxSpeed - 20.0) / 40.0);
+            maxSpeed *= dynamicBuffer;
+        }
+
+        // Apply latency compensation
         if (latencyCompensationEnabled) {
             double latencyCompensationFactor = 1.0;
 

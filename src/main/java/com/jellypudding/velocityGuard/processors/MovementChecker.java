@@ -7,9 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
-import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -20,9 +18,11 @@ public class MovementChecker {
     // Track how long players have been in the air
     private final Map<UUID, Integer> airTicks = new ConcurrentHashMap<>();
 
-    // Track recent movements to detect patterns
-    private final Map<UUID, Queue<Double>> recentSpeeds = new ConcurrentHashMap<>();
+    // Track movement timing
     private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
+
+    // Track consecutive speed violations
+    private final Map<UUID, Integer> speedViolationsCounter = new ConcurrentHashMap<>();
 
     // Track recent damage time to account for knockback
     private final Map<UUID, Long> lastDamageTime = new ConcurrentHashMap<>();
@@ -45,11 +45,6 @@ public class MovementChecker {
 
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
-
-    // Constants for pattern detection
-    private static final int SPEED_HISTORY_SIZE = 6;
-    private static final double SPEED_VARIANCE_THRESHOLD = 0.05;
-    private static final double SUSPICIOUS_SPEED_RATIO = 0.85;
 
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -91,7 +86,6 @@ public class MovementChecker {
                 plugin.getLogger().info("Resetting movement data for " + player.getName() + " after unblock");
             }
             airTicks.remove(playerId);
-            resetSpeedHistory(playerId);
             lastMoveTime.remove(playerId);
             return true;
         }
@@ -117,9 +111,6 @@ public class MovementChecker {
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
         // Blocks per second.
         double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
-
-        // Update speed history for pattern detection.
-        updateSpeedHistory(playerId, horizontalSpeed);
 
         // Track elytra and dragon damage
         // which will be used to calculate the maximum allowed speed.
@@ -151,49 +142,54 @@ public class MovementChecker {
             plugin.getConfigManager().getBufferMultiplier(),
             ping,
             plugin.getConfigManager().isLatencyCompensationEnabled(),
-            plugin.getConfigManager().getVeryLowPingCompensation(),
             plugin.getConfigManager().getLowPingCompensation(),
             plugin.getConfigManager().getMediumPingCompensation(),
             plugin.getConfigManager().getHighPingCompensation(),
             plugin.getConfigManager().getVeryHighPingCompensation(),
-            plugin.getConfigManager().getExtremePingCompensation()
+            plugin.getConfigManager().getExtremePingCompensation(),
+            plugin.getConfigManager().getVeryLowPingCompensation(),
+            plugin.getConfigManager().getElytraGlidingMultiplier(),
+            plugin.getConfigManager().getElytraLandingDuration()
         );
 
-        // Check for speed violations - there are two checks.
+        // Check for speed violations
         boolean speedViolation = false;
 
         Long recentDamage = lastDamageTime.get(playerId);
         Long recentRiptide = lastRiptideTime.get(playerId);
         boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 150);
-        boolean justUsedRiptide = recentRiptide != null && (currentTime - recentRiptide < 150);
+        boolean justUsedRiptide = recentRiptide != null && (currentTime - recentRiptide < 1500);
 
         if (horizontalSpeed > maxSpeed) {
             // Check if the player just took damage or used riptide in the past 150ms.
             // This helps prevent race conditions between events and movement processing.
             if (!justTookDamage && !justUsedRiptide) {
-                // First check - basic speed threshold.
-                speedViolation = true;
+                int burstTolerance = plugin.getConfigManager().getBurstTolerance();
 
-                if (plugin.isDebugEnabled()) {
-                    String vehicleInfo = isVehicle ? " (in vehicle)" : "";
-                    plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " +
-                            String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " +
-                            String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms");
+                int violations = speedViolationsCounter.getOrDefault(playerId, 0) + 1;
+                speedViolationsCounter.put(playerId, violations);
+
+                if (violations > burstTolerance) {
+                    speedViolation = true;
+
+                    if (plugin.isDebugEnabled()) {
+                        String vehicleInfo = isVehicle ? " (in vehicle)" : "";
+                        plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " +
+                                String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " +
+                                String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms, violations: " + violations);
+                    }
+                } else if (plugin.isDebugEnabled()) {
+                    plugin.getLogger().info(player.getName() + " exceeded speed but within burst tolerance (" +
+                            violations + "/" + burstTolerance + "): " + String.format("%.2f", horizontalSpeed) +
+                            " blocks/s (max allowed: " + String.format("%.2f", maxSpeed) + ")");
                 }
             } else if (plugin.isDebugEnabled()) {
                 String reason = justTookDamage ? "recently damaged" : "recently used riptide";
                 plugin.getLogger().info(player.getName() + " exceeded speed limit but was " + reason + " - ignoring.");
+                speedViolationsCounter.put(playerId, 0);
             }
-        }
-
-        // Second check - consistent speed pattern.
-        if (!speedViolation && hasSpeedPattern(playerId, maxSpeed)) {
-            speedViolation = true;
-
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " has suspicious speed pattern: " + 
-                        String.format("%.2f", horizontalSpeed) + " blocks/s");
-            }
+        } else {
+            speedViolationsCounter.put(playerId, 0);
         }
 
         // Only check for flying if there's no speed violation yet.
@@ -255,60 +251,6 @@ public class MovementChecker {
         }.runTask(plugin);
     }
 
-    private void updateSpeedHistory(UUID playerId, double speed) {
-        Queue<Double> speeds = recentSpeeds.computeIfAbsent(playerId, k -> new LinkedList<>());
-
-        // Add the new speed to the history.
-        speeds.add(speed);
-
-        // Keep history size limited.
-        while (speeds.size() > SPEED_HISTORY_SIZE) {
-            speeds.poll();
-        }
-    }
-
-    private void resetSpeedHistory(UUID playerId) {
-        Queue<Double> speeds = recentSpeeds.get(playerId);
-        if (speeds != null) {
-            speeds.clear();
-        }
-    }
-
-    private boolean hasSpeedPattern(UUID playerId, double maxSpeed) {
-        Queue<Double> history = recentSpeeds.get(playerId);
-        if (history == null || history.size() < SPEED_HISTORY_SIZE) {
-            return false;
-        }
-
-        // Calculate average and check for suspiciously consistent speeds.
-        double sum = 0;
-        double min = Double.MAX_VALUE;
-        double max = Double.MIN_VALUE;
-        int highSpeedCount = 0;
-
-        for (double speed : history) {
-            sum += speed;
-            min = Math.min(min, speed);
-            max = Math.max(max, speed);
-
-            // Count how many speeds are suspiciously high.
-            if (speed > maxSpeed * SUSPICIOUS_SPEED_RATIO) {
-                highSpeedCount++;
-            }
-        }
-
-        double average = sum / history.size();
-        double variance = max - min;
-
-        // Speed cheats often have suspiciously consistent speeds just under the detection threshold.
-        boolean suspiciouslyConsistent = variance < SPEED_VARIANCE_THRESHOLD && average > maxSpeed * SUSPICIOUS_SPEED_RATIO;
-
-        // Another pattern: too many movements near the maximum allowed speed.
-        boolean tooManyHighSpeeds = highSpeedCount >= SPEED_HISTORY_SIZE - 1;
-
-        return suspiciouslyConsistent || tooManyHighSpeeds;
-    }
-
     public void recordPlayerDamage(Player player, boolean isDragonDamage) {
         if (player == null) return;
         UUID playerId = player.getUniqueId();
@@ -339,10 +281,10 @@ public class MovementChecker {
 
         // Reset tracking variables.
         airTicks.put(playerId, 0);
-        resetSpeedHistory(playerId);
         wasGliding.put(playerId, player.isGliding());
         lastDamageTime.remove(playerId);
         lastRiptideTime.remove(playerId);
+        speedViolationsCounter.put(playerId, 0);
 
         // Let them move again (in case they were previously blocked).
         movementBlockedUntil.remove(playerId);
@@ -352,7 +294,6 @@ public class MovementChecker {
         if (playerId == null) return;
 
         airTicks.remove(playerId);
-        recentSpeeds.remove(playerId);
         lastMoveTime.remove(playerId);
         wasGliding.remove(playerId);
         elytraLandingTime.remove(playerId);
@@ -361,5 +302,6 @@ public class MovementChecker {
         lastDamageTime.remove(playerId);
         dragonDamage.remove(playerId);
         lastRiptideTime.remove(playerId);
+        speedViolationsCounter.remove(playerId);
     }
 }
