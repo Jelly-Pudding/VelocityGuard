@@ -34,21 +34,18 @@ checks:
     # Has to be an integer.
     cancel-duration: 3
 
-    # Multiplier added to the buffer to prevent false positives
-    buffer-multiplier: 2.5
-
     # Latency compensation settings
     latency-compensation:
       # Whether to enable latency compensation
       enabled: true
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 1.5   # 21-50ms ping
-      low-ping: 2.0        # 51-100ms ping
-      medium-ping: 3.0     # 101-200ms ping
-      high-ping: 4.0       # 201-300ms ping
-      very-high-ping: 5.0  # 301-500ms ping
-      extreme-ping: 6.0    # 500+ms ping
+      very-low-ping: 2.5   # 21-50ms ping
+      low-ping: 5.8        # 51-100ms ping
+      medium-ping: 5.9     # 101-200ms ping
+      high-ping: 5.9       # 201-300ms ping
+      very-high-ping: 5.9  # 301-500ms ping
+      extreme-ping: 5.9    # 500+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -75,7 +72,7 @@ checks:
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
-    buffer-multiplier: 1.35
+    buffer-multiplier: 2.5
 
 # General settings.
 settings:

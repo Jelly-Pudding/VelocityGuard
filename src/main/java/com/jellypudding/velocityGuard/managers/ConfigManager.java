@@ -47,12 +47,12 @@ public class ConfigManager {
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
-    private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 1.5;
-    private static final double DEFAULT_LOW_PING_COMPENSATION = 2.0;
-    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 3.0;
-    private static final double DEFAULT_HIGH_PING_COMPENSATION = 4.0;
-    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 5.0;
-    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 6.0;
+    private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 2.5;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 5.8;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 5.9;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 5.9;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 5.9;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 5.9;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
