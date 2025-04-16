@@ -22,12 +22,12 @@ checks:
       enabled: true
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 2.5   # 21-50ms ping
-      low-ping: 5.8        # 51-100ms ping
-      medium-ping: 5.9     # 101-200ms ping
-      high-ping: 5.9       # 201-300ms ping
-      very-high-ping: 5.9  # 301-500ms ping
-      extreme-ping: 5.9    # 500+ms ping
+      very-low-ping: 1.1    # 21-50ms ping
+      low-ping: 1.15        # 51-100ms ping
+      medium-ping: 1.2      # 101-200ms ping
+      high-ping: 1.25       # 201-300ms ping
+      very-high-ping: 1.3   # 301-500ms ping
+      extreme-ping: 1.35    # 500+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -42,6 +42,13 @@ checks:
       multiplier: 8.0
       # Duration in milliseconds that the riptide effect lasts.
       duration: 3000
+      
+    # Elytra movement handling
+    elytra:
+      # Multiplier for speed threshold while gliding with elytra
+      gliding-multiplier: 3.0
+      # Duration in milliseconds that landing adjustment lasts after stopping gliding
+      landing-duration: 1500
 
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.
@@ -54,7 +61,12 @@ checks:
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
-    buffer-multiplier: 2.5
+    buffer-multiplier: 1.1
+
+    # Speed burst threshold - allows momentary speed spikes
+    # Maximum number of consecutive measurements that can exceed the speed limit
+    # before triggering a violation
+    burst-tolerance: 6
 
 # General settings.
 settings:
