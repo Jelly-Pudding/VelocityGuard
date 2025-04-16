@@ -131,9 +131,10 @@ public class MovementChecker {
         }
         boolean isRecentDragonDamage = dragonDamage.getOrDefault(playerId, false);
 
+        int ping = MovementUtils.getPlayerPing(player);
         // Get max allowed speed with adjustments for game conditions.
         double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
-            player, 
+            player,
             plugin.getConfigManager().getMaxHorizontalSpeed(),
             elytraLandingTime.get(playerId),
             lastDamageTime.get(playerId),
@@ -147,7 +148,14 @@ public class MovementChecker {
             isVehicle,
             plugin.getConfigManager().getVehicleSpeedMultiplier(),
             plugin.getConfigManager().getVehicleIceSpeedMultiplier(),
-            plugin.getConfigManager().getBufferMultiplier()
+            plugin.getConfigManager().getBufferMultiplier(),
+            ping,
+            plugin.getConfigManager().isLatencyCompensationEnabled(),
+            plugin.getConfigManager().getLowPingCompensation(),
+            plugin.getConfigManager().getMediumPingCompensation(),
+            plugin.getConfigManager().getHighPingCompensation(),
+            plugin.getConfigManager().getVeryHighPingCompensation(),
+            plugin.getConfigManager().getExtremePingCompensation()
         );
 
         // Check for speed violations - there are two checks.
@@ -167,9 +175,9 @@ public class MovementChecker {
 
                 if (plugin.isDebugEnabled()) {
                     String vehicleInfo = isVehicle ? " (in vehicle)" : "";
-                    plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " + 
-                            String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " + 
-                            String.format("%.2f", maxSpeed) + ")");
+                    plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " +
+                            String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " +
+                            String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms");
                 }
             } else if (plugin.isDebugEnabled()) {
                 String reason = justTookDamage ? "recently damaged" : "recently used riptide";

@@ -18,6 +18,13 @@ public class ConfigManager {
     private final double bufferMultiplier;
     private final boolean debugMode;
 
+    private final boolean enableLatencyCompensation;
+    private final double lowPingCompensation;
+    private final double mediumPingCompensation;
+    private final double highPingCompensation;
+    private final double veryHighPingCompensation;
+    private final double extremePingCompensation;
+
     // Blocks per second (including sprint-jumping)
     private static final double DEFAULT_MAX_HORIZONTAL_SPEED = 10.0;
     // Seconds to cancel movement
@@ -35,7 +42,15 @@ public class ConfigManager {
     // Default vehicle ice speed multiplier
     private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 3.6;
     // Default buffer multiplier
-    private static final double DEFAULT_BUFFER_MULTIPLIER = 1.35;
+    private static final double DEFAULT_BUFFER_MULTIPLIER = 1.5;
+
+    // Default latency compensation values
+    private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.3;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.5;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.8;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 2.2;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 2.5;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -51,6 +66,13 @@ public class ConfigManager {
         this.vehicleSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier", DEFAULT_VEHICLE_SPEED_MULTIPLIER));
         this.vehicleIceSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-ice-speed-multiplier", DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER));
         this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
+
+        this.enableLatencyCompensation = config.getBoolean("checks.speed.latency-compensation.enabled", DEFAULT_ENABLE_LATENCY_COMPENSATION);
+        this.lowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.low-ping", DEFAULT_LOW_PING_COMPENSATION));
+        this.mediumPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.medium-ping", DEFAULT_MEDIUM_PING_COMPENSATION));
+        this.highPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.high-ping", DEFAULT_HIGH_PING_COMPENSATION));
+        this.veryHighPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-high-ping", DEFAULT_VERY_HIGH_PING_COMPENSATION));
+        this.extremePingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.extreme-ping", DEFAULT_EXTREME_PING_COMPENSATION));
 
         this.debugMode = config.getBoolean("settings.debug-mode", false);
     }
@@ -93,5 +115,29 @@ public class ConfigManager {
 
     public double getBufferMultiplier() {
         return bufferMultiplier;
+    }
+
+    public boolean isLatencyCompensationEnabled() {
+        return enableLatencyCompensation;
+    }
+
+    public double getLowPingCompensation() {
+        return lowPingCompensation;
+    }
+
+    public double getMediumPingCompensation() {
+        return mediumPingCompensation;
+    }
+
+    public double getHighPingCompensation() {
+        return highPingCompensation;
+    }
+
+    public double getVeryHighPingCompensation() {
+        return veryHighPingCompensation;
+    }
+
+    public double getExtremePingCompensation() {
+        return extremePingCompensation;
     }
 }

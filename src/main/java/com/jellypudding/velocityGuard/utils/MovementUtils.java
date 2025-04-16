@@ -36,6 +36,14 @@ public class MovementUtils {
         return Math.sqrt(dx * dx + dz * dz);
     }
 
+    public static int getPlayerPing(Player player) {
+        try {
+            return player.getPing();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     public static boolean isNearGround(Player player) {
         Location loc = player.getLocation();
 
@@ -78,7 +86,10 @@ public class MovementUtils {
                                      double riptideMultiplier, int riptideDuration,
                                      boolean isDragonDamage, boolean isVehicle,
                                      double vehicleSpeedMultiplier, double vehicleIceSpeedMultiplier,
-                                     double bufferMultiplier) {
+                                     double bufferMultiplier, int ping, boolean latencyCompensationEnabled,
+                                     double lowPingCompensation, double mediumPingCompensation,
+                                     double highPingCompensation, double veryHighPingCompensation,
+                                     double extremePingCompensation) {
         double maxSpeed = baseSpeed;
 
         if (player.hasPotionEffect(PotionEffectType.SPEED)) {
@@ -144,7 +155,31 @@ public class MovementUtils {
         }
 
         // Apply configurable buffer multiplier to prevent false positives.
-        return maxSpeed * bufferMultiplier;
+        maxSpeed *= bufferMultiplier;
+
+        if (latencyCompensationEnabled) {
+            double latencyCompensationFactor = 1.0;
+
+            if (ping <= 20) {
+                latencyCompensationFactor = 1.0;
+            } else if (ping <= 50) {
+                latencyCompensationFactor = 1.1;
+            } else if (ping <= 100) {
+                latencyCompensationFactor = lowPingCompensation;
+            } else if (ping <= 200) {
+                latencyCompensationFactor = mediumPingCompensation;
+            } else if (ping <= 300) {
+                latencyCompensationFactor = highPingCompensation;
+            } else if (ping <= 500) {
+                latencyCompensationFactor = veryHighPingCompensation;
+            } else {
+                latencyCompensationFactor = extremePingCompensation;
+            }
+
+            maxSpeed *= latencyCompensationFactor;
+        }
+
+        return maxSpeed;
     }
 
     public static boolean checkFlying(Player player, Location from, Location to,
