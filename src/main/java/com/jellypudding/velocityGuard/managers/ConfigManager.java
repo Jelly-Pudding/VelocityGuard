@@ -52,16 +52,16 @@ public class ConfigManager {
     // Default buffer multiplier
     private static final double DEFAULT_BUFFER_MULTIPLIER = 1.1;
     // Default burst tolerance
-    private static final int DEFAULT_BURST_TOLERANCE = 6;
+    private static final int DEFAULT_BURST_TOLERANCE = 15;
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
     private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 1.1;
-    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.15;
-    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.2;
-    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.25;
-    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 1.3;
-    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 1.35;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.2;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.4;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.45;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 1.5;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 1.6;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
