@@ -6,6 +6,7 @@
 - **Movement Blocking**: Temporarily blocks movement when violations are detected.
 - **Pattern Detection**: Identifies suspicious movement patterns.
 - **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
+- **Latency Compensation**: Automatically adjusts speed checks based on player ping to prevent false positives on laggy connections.
 
 ## Known Issues
 - **Trident Riptide**: In some cases, using a trident with the Riptide enchantment may trigger a violation. This is due to timing issues between movement packets and the riptide event.
@@ -18,6 +19,7 @@
 ## Configuration
 In `config.yml`, you can configure:
 ```yaml
+# Configuration for detecting violations.
 checks:
   speed:
     # Maximum horizontal speed in blocks per SECOND
@@ -32,7 +34,22 @@ checks:
     # Has to be an integer.
     cancel-duration: 3
 
-    # Knockback handling
+    # Multiplier added to the buffer to prevent false positives
+    buffer-multiplier: 1.5
+
+    # Latency compensation settings
+    latency-compensation:
+      # Whether to enable latency compensation
+      enabled: true
+      # Compensation factors for different ping ranges
+      # 1.0 means no compensation. Higher values allow more speed
+      low-ping: 1.3       # 51-100ms ping
+      medium-ping: 1.5    # 101-200ms ping
+      high-ping: 1.8      # 201-300ms ping
+      very-high-ping: 2.2 # 301-500ms ping
+      extreme-ping: 2.5   # 500+ms ping
+
+    # Knockback adjustment settings
     knockback:
       # Multiplier for speed threshold after taking damage.
       multiplier: 6.0
