@@ -1,5 +1,5 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight Minecraft Paper 1.21.4 plugin designed to prevent extreme movement-based cheats like speed and flight. It uses direct packet interception for immediate detection and prevention of illegal movement. While it does **not** outright prevent all speed and flight cheats, it effectively stops the most extreme cases.
+**VelocityGuard** is a lightweight Minecraft Paper 1.21.6 plugin designed to prevent extreme movement-based cheats like speed and flight. It uses direct packet interception for immediate detection and prevention of illegal movement. While it does **not** outright prevent all speed and flight cheats, it effectively stops the most extreme cases.
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.
@@ -38,11 +38,11 @@ checks:
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
       very-low-ping: 1.1    # 21-50ms ping
-      low-ping: 1.2         # 51-100ms ping
-      medium-ping: 1.4      # 101-200ms ping
-      high-ping: 1.45       # 201-300ms ping
-      very-high-ping: 1.5   # 301-500ms ping
-      extreme-ping: 1.6     # 500+ms ping
+      low-ping: 1.6         # 51-100ms ping
+      medium-ping: 2.7      # 101-200ms ping
+      high-ping: 3.0        # 201-300ms ping
+      very-high-ping: 3.2   # 301-500ms ping
+      extreme-ping: 3.5     # 500+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -106,8 +106,4 @@ settings:
 `velocityguard.admin`: Allows reloading the plugin configuration (default: op).
 
 ## Support Me
-Donations will help me with the development of this project.
-
-One-off donation: https://ko-fi.com/lolwhatyesme
-
-Patreon: https://www.patreon.com/lolwhatyesme
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K3K715TC1R)
