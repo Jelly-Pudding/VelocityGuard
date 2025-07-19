@@ -1,5 +1,5 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight Minecraft Paper 1.21.7 plugin designed to prevent extreme movement-based cheats like speed and flight. It uses direct packet interception for immediate detection and prevention of illegal movement. While it does **not** outright prevent all speed and flight cheats, it effectively stops the most extreme cases.
+**VelocityGuard** is a lightweight Minecraft Paper 1.21.8 plugin designed to prevent extreme movement-based cheats like speed and flight. It uses direct packet interception for immediate detection and prevention of illegal movement. While it does **not** outright prevent all speed and flight cheats, it effectively stops the most extreme cases.
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.

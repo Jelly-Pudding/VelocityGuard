@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.jellypudding"
-version = "1.4"
+version = "1.5"
 
 repositories {
     mavenCentral()
@@ -12,7 +12,7 @@ repositories {
 }
 
 dependencies {
-    paperweight.paperDevBundle("1.21.7-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("1.21.8-R0.1-SNAPSHOT")
 }
 
 java {

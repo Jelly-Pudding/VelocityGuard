@@ -23,11 +23,11 @@ checks:
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
       very-low-ping: 1.1    # 21-50ms ping
-      low-ping: 1.6         # 51-100ms ping
-      medium-ping: 2.7      # 101-200ms ping
-      high-ping: 3.0        # 201-300ms ping
-      very-high-ping: 3.2   # 301-500ms ping
-      extreme-ping: 3.5     # 500+ms ping
+      low-ping: 2.1         # 51-100ms ping
+      medium-ping: 2.9      # 101-200ms ping
+      high-ping: 3.6        # 201-300ms ping
+      very-high-ping: 4.3   # 301-500ms ping
+      extreme-ping: 4.7     # 500+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -52,11 +52,11 @@ checks:
 
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.
-    vehicle-speed-multiplier: 1.1
+    vehicle-speed-multiplier: 1.9
 
     # Ice vehicle speed multiplier - only applies when vehicles are on ice.
     # Boats on ice can move especially fast.
-    vehicle-ice-speed-multiplier: 3.6
+    vehicle-ice-speed-multiplier: 4.3
 
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
