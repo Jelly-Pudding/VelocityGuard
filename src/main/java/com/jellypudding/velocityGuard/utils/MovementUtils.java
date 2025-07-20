@@ -90,6 +90,7 @@ public class MovementUtils {
                                      double lowPingCompensation, double mediumPingCompensation,
                                      double highPingCompensation, double veryHighPingCompensation,
                                      double extremePingCompensation, double veryLowPingCompensation,
+                                     double ultraPingCompensation, double insanePingCompensation,
                                      double elytraGlidingMultiplier, int elytraLandingDuration) {
         double maxSpeed = baseSpeed;
 
@@ -182,14 +183,25 @@ public class MovementUtils {
                 latencyCompensationFactor = highPingCompensation;
             } else if (ping <= 500) {
                 latencyCompensationFactor = veryHighPingCompensation;
-            } else {
+            } else if (ping <= 750) {
                 latencyCompensationFactor = extremePingCompensation;
+            } else if (ping <= 1000) {
+                latencyCompensationFactor = ultraPingCompensation;
+            } else {
+                latencyCompensationFactor = insanePingCompensation;
             }
 
             maxSpeed *= latencyCompensationFactor;
         }
 
         return maxSpeed;
+    }
+
+    public static boolean isRidingGhast(Player player) {
+        if (player.isInsideVehicle() && player.getVehicle() != null) {
+            return player.getVehicle().getType().toString().equals("HAPPY_GHAST");
+        }
+        return false;
     }
 
     public static boolean checkFlying(Player player, Location from, Location to,

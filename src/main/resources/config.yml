@@ -22,12 +22,27 @@ checks:
       enabled: true
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 1.1    # 21-50ms ping
-      low-ping: 2.1         # 51-100ms ping
-      medium-ping: 2.9      # 101-200ms ping
-      high-ping: 3.6        # 201-300ms ping
-      very-high-ping: 4.3   # 301-500ms ping
-      extreme-ping: 4.7     # 500+ms ping
+      very-low-ping: 1.1      # 21-50ms ping
+      low-ping: 2.1           # 51-100ms ping
+      medium-ping: 2.9        # 101-200ms ping
+      high-ping: 3.6          # 201-300ms ping
+      very-high-ping: 4.6     # 301-500ms ping
+      extreme-ping: 5.7       # 501-750ms ping
+      ultra-ping: 6.6         # 751-1000ms ping
+      insane-ping: 7.5        # 1000+ms ping
+
+    # Burst tolerance settings - number of consecutive violations allowed before punishment
+    # Higher ping players get more tolerance due to network inconsistency
+    burst-tolerance:
+      default: 15             # ≤20ms ping (no compensation)
+      very-low-ping: 15       # 21-50ms ping
+      low-ping: 20            # 51-100ms ping
+      medium-ping: 22         # 101-200ms ping
+      high-ping: 24           # 201-300ms ping
+      very-high-ping: 27      # 301-500ms ping
+      extreme-ping: 30        # 501-750ms ping
+      ultra-ping: 33          # 751-1000ms ping
+      insane-ping: 35        # 1001+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -62,11 +77,6 @@ checks:
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
     buffer-multiplier: 1.1
-
-    # Speed burst threshold - allows momentary speed spikes
-    # Maximum number of consecutive measurements that can exceed the speed limit
-    # before triggering a violation
-    burst-tolerance: 15
 
 # General settings.
 settings:

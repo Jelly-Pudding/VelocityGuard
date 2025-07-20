@@ -18,7 +18,6 @@ public class ConfigManager {
     private final double vehicleSpeedMultiplier;
     private final double vehicleIceSpeedMultiplier;
     private final double bufferMultiplier;
-    private final int burstTolerance;
     private final boolean debugMode;
 
     private final boolean enableLatencyCompensation;
@@ -28,6 +27,18 @@ public class ConfigManager {
     private final double highPingCompensation;
     private final double veryHighPingCompensation;
     private final double extremePingCompensation;
+    private final double ultraPingCompensation;
+    private final double insanePingCompensation;
+
+    private final int defaultBurstTolerance;
+    private final int veryLowPingBurstTolerance;
+    private final int lowPingBurstTolerance;
+    private final int mediumPingBurstTolerance;
+    private final int highPingBurstTolerance;
+    private final int veryHighPingBurstTolerance;
+    private final int extremePingBurstTolerance;
+    private final int ultraPingBurstTolerance;
+    private final int insanePingBurstTolerance;
 
     // Blocks per second (including sprint-jumping)
     private static final double DEFAULT_MAX_HORIZONTAL_SPEED = 10.0;
@@ -46,22 +57,33 @@ public class ConfigManager {
     // Default elytra landing duration in milliseconds
     private static final int DEFAULT_ELYTRA_LANDING_DURATION = 1500;
     // Default vehicle speed multiplier
-    private static final double DEFAULT_VEHICLE_SPEED_MULTIPLIER = 1.1;
+    private static final double DEFAULT_VEHICLE_SPEED_MULTIPLIER = 1.9;
     // Default vehicle ice speed multiplier
-    private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 3.6;
+    private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 4.3;
     // Default buffer multiplier
     private static final double DEFAULT_BUFFER_MULTIPLIER = 1.1;
-    // Default burst tolerance
-    private static final int DEFAULT_BURST_TOLERANCE = 15;
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
     private static final double DEFAULT_VERY_LOW_PING_COMPENSATION = 1.1;
-    private static final double DEFAULT_LOW_PING_COMPENSATION = 1.2;
-    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 1.4;
-    private static final double DEFAULT_HIGH_PING_COMPENSATION = 1.45;
-    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 1.5;
-    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 1.6;
+    private static final double DEFAULT_LOW_PING_COMPENSATION = 2.1;
+    private static final double DEFAULT_MEDIUM_PING_COMPENSATION = 2.9;
+    private static final double DEFAULT_HIGH_PING_COMPENSATION = 3.6;
+    private static final double DEFAULT_VERY_HIGH_PING_COMPENSATION = 4.6;
+    private static final double DEFAULT_EXTREME_PING_COMPENSATION = 5.7;
+    private static final double DEFAULT_ULTRA_PING_COMPENSATION = 6.6;
+    private static final double DEFAULT_INSANE_PING_COMPENSATION = 7.5;
+
+    // Default burst tolerance values
+    private static final int DEFAULT_DEFAULT_BURST_TOLERANCE = 15;
+    private static final int DEFAULT_VERY_LOW_PING_BURST_TOLERANCE = 15;
+    private static final int DEFAULT_LOW_PING_BURST_TOLERANCE = 20;
+    private static final int DEFAULT_MEDIUM_PING_BURST_TOLERANCE = 22;
+    private static final int DEFAULT_HIGH_PING_BURST_TOLERANCE = 24;
+    private static final int DEFAULT_VERY_HIGH_PING_BURST_TOLERANCE = 27;
+    private static final int DEFAULT_EXTREME_PING_BURST_TOLERANCE = 30;
+    private static final int DEFAULT_ULTRA_PING_BURST_TOLERANCE = 33;
+    private static final int DEFAULT_INSANE_PING_BURST_TOLERANCE = 35;
 
     public ConfigManager(VelocityGuard plugin) {
         this.plugin = plugin;
@@ -79,7 +101,6 @@ public class ConfigManager {
         this.vehicleSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier", DEFAULT_VEHICLE_SPEED_MULTIPLIER));
         this.vehicleIceSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-ice-speed-multiplier", DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER));
         this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
-        this.burstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance", DEFAULT_BURST_TOLERANCE));
 
         this.enableLatencyCompensation = config.getBoolean("checks.speed.latency-compensation.enabled", DEFAULT_ENABLE_LATENCY_COMPENSATION);
         this.veryLowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-low-ping", DEFAULT_VERY_LOW_PING_COMPENSATION));
@@ -88,6 +109,19 @@ public class ConfigManager {
         this.highPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.high-ping", DEFAULT_HIGH_PING_COMPENSATION));
         this.veryHighPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-high-ping", DEFAULT_VERY_HIGH_PING_COMPENSATION));
         this.extremePingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.extreme-ping", DEFAULT_EXTREME_PING_COMPENSATION));
+        this.ultraPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.ultra-ping", DEFAULT_ULTRA_PING_COMPENSATION));
+        this.insanePingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.insane-ping", DEFAULT_INSANE_PING_COMPENSATION));
+
+        // Load burst tolerance values per ping category
+        this.defaultBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.default", DEFAULT_DEFAULT_BURST_TOLERANCE));
+        this.veryLowPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.very-low-ping", DEFAULT_VERY_LOW_PING_BURST_TOLERANCE));
+        this.lowPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.low-ping", DEFAULT_LOW_PING_BURST_TOLERANCE));
+        this.mediumPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.medium-ping", DEFAULT_MEDIUM_PING_BURST_TOLERANCE));
+        this.highPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.high-ping", DEFAULT_HIGH_PING_BURST_TOLERANCE));
+        this.veryHighPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.very-high-ping", DEFAULT_VERY_HIGH_PING_BURST_TOLERANCE));
+        this.extremePingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.extreme-ping", DEFAULT_EXTREME_PING_BURST_TOLERANCE));
+        this.ultraPingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.ultra-ping", DEFAULT_ULTRA_PING_BURST_TOLERANCE));
+        this.insanePingBurstTolerance = Math.max(1, config.getInt("checks.speed.burst-tolerance.insane-ping", DEFAULT_INSANE_PING_BURST_TOLERANCE));
 
         this.debugMode = config.getBoolean("settings.debug-mode", false);
     }
@@ -140,10 +174,6 @@ public class ConfigManager {
         return bufferMultiplier;
     }
 
-    public int getBurstTolerance() {
-        return burstTolerance;
-    }
-
     public boolean isLatencyCompensationEnabled() {
         return enableLatencyCompensation;
     }
@@ -170,5 +200,35 @@ public class ConfigManager {
 
     public double getExtremePingCompensation() {
         return extremePingCompensation;
+    }
+
+    public double getUltraPingCompensation() {
+        return ultraPingCompensation;
+    }
+
+    public double getInsanePingCompensation() {
+        return insanePingCompensation;
+    }
+
+    public int getBurstToleranceForPing(int ping) {
+        if (ping <= 20) {
+            return defaultBurstTolerance;
+        } else if (ping <= 50) {
+            return veryLowPingBurstTolerance;
+        } else if (ping <= 100) {
+            return lowPingBurstTolerance;
+        } else if (ping <= 200) {
+            return mediumPingBurstTolerance;
+        } else if (ping <= 300) {
+            return highPingBurstTolerance;
+        } else if (ping <= 500) {
+            return veryHighPingBurstTolerance;
+        } else if (ping <= 750) {
+            return extremePingBurstTolerance;
+        } else if (ping <= 1000) {
+            return ultraPingBurstTolerance;
+        } else {
+            return insanePingBurstTolerance;
+        }
     }
 }

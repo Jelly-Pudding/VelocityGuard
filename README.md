@@ -6,6 +6,7 @@
 - **Movement Blocking**: Temporarily blocks movement when violations are detected.
 - **Pattern Detection**: Identifies suspicious movement patterns.
 - **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
+- **Happy Ghast Compatible**: Fully supports players riding Happy Ghasts without triggering false flight violations.
 - **Latency Compensation**: Automatically adjusts speed checks based on player ping to prevent false positives on laggy connections.
 
 ## Installation
@@ -37,12 +38,27 @@ checks:
       enabled: true
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 1.1    # 21-50ms ping
-      low-ping: 1.6         # 51-100ms ping
-      medium-ping: 2.7      # 101-200ms ping
-      high-ping: 3.0        # 201-300ms ping
-      very-high-ping: 3.2   # 301-500ms ping
-      extreme-ping: 3.5     # 500+ms ping
+      very-low-ping: 1.1      # 21-50ms ping
+      low-ping: 2.1           # 51-100ms ping
+      medium-ping: 2.9        # 101-200ms ping
+      high-ping: 3.6          # 201-300ms ping
+      very-high-ping: 4.6     # 301-500ms ping
+      extreme-ping: 5.7       # 501-750ms ping
+      ultra-ping: 6.6         # 751-1000ms ping
+      insane-ping: 7.5        # 1000+ms ping
+
+    # Burst tolerance settings - number of consecutive violations allowed before punishment
+    # Higher ping players get more tolerance due to network inconsistency
+    burst-tolerance:
+      default: 15             # ≤20ms ping (no compensation)
+      very-low-ping: 15       # 21-50ms ping
+      low-ping: 20            # 51-100ms ping
+      medium-ping: 22         # 101-200ms ping
+      high-ping: 24           # 201-300ms ping
+      very-high-ping: 27      # 301-500ms ping
+      extreme-ping: 30        # 501-750ms ping
+      ultra-ping: 33          # 751-1000ms ping
+      insane-ping: 35         # 1000+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -67,21 +83,16 @@ checks:
 
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.
-    vehicle-speed-multiplier: 1.1
+    vehicle-speed-multiplier: 1.9
 
     # Ice vehicle speed multiplier - only applies when vehicles are on ice.
     # Boats on ice can move especially fast.
-    vehicle-ice-speed-multiplier: 3.6
+    vehicle-ice-speed-multiplier: 4.3
 
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
     buffer-multiplier: 1.1
-
-    # Speed burst threshold - allows momentary speed spikes
-    # Maximum number of consecutive measurements that can exceed the speed limit
-    # before triggering a violation
-    burst-tolerance: 15
 
 # General settings.
 settings:
@@ -93,7 +104,7 @@ settings:
 ## How It Works
 1. The plugin intercepts player movement packets before they're processed.
 2. Each movement is checked against configured speed limits and flight rules.
-3. The plugin considers various factors like knockback, potion effects, and special movement states.
+3. The plugin considers various factors like knockback, potion effects, special movement states, and vehicle types (Happy Ghasts are exempt from flight checks).
 4. Sophisticated pattern detection identifies potential speed cheats that stay just under the defined thresholds.
 5. Invalid movements are rejected, and player movement is temporarily blocked.
 6. Players receive notification when cheating is detected.

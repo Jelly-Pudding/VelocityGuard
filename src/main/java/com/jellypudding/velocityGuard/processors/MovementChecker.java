@@ -43,6 +43,9 @@ public class MovementChecker {
     // Track players who need a full data reset on their next movement after being unblocked
     private final Map<UUID, Boolean> needsReset = new ConcurrentHashMap<>();
 
+    // Track when players were last blocked to ignore old movement packets
+    private final Map<UUID, Long> lastBlockedTime = new ConcurrentHashMap<>();
+
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
 
@@ -59,12 +62,14 @@ public class MovementChecker {
         }
 
         UUID playerId = player.getUniqueId();
+        long currentTime = System.currentTimeMillis();
+
         // Check if player is currently blocked from moving
         Long blockedUntil = movementBlockedUntil.get(playerId);
 
-        if (blockedUntil != null && System.currentTimeMillis() < blockedUntil) {
+        if (blockedUntil != null && currentTime < blockedUntil) {
             if (plugin.isDebugEnabled()) {
-                long remainingTime = (blockedUntil - System.currentTimeMillis()) / 1000;
+                long remainingTime = (blockedUntil - currentTime) / 1000;
                 if (remainingTime % 1 == 0) {
                     plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
                 }
@@ -72,7 +77,7 @@ public class MovementChecker {
             return false;
         }
 
-        if (blockedUntil != null && System.currentTimeMillis() >= blockedUntil) {
+        if (blockedUntil != null && currentTime >= blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Player " + player.getName() + " is now unblocked - will reset on next movement");
             }
@@ -81,12 +86,30 @@ public class MovementChecker {
             return true;
         }
 
+        // Check if this movement packet is from before the player was blocked (ignore old packets).
+        Long lastBlocked = lastBlockedTime.get(playerId);
+        if (lastBlocked != null) {
+            // Estimate when this movement packet was created (account for processing time and network delay).
+            // Subtract ping to estimate when packet was sent.
+            long estimatedPacketTime = currentTime;
+
+            // Estimate based on their ping.
+            int ping = player.getPing();
+            estimatedPacketTime -= Math.max(ping, 50);
+
+            // If this packet originated before the block, ignore it.
+            if (estimatedPacketTime < lastBlocked) {
+                return false; // Block this old packet but don't punish for it.
+            }
+        }
+
         if (needsReset.remove(playerId) != null) {
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("Resetting movement data for " + player.getName() + " after unblock");
             }
             airTicks.remove(playerId);
             lastMoveTime.remove(playerId);
+            lastBlockedTime.remove(playerId);
             return true;
         }
 
@@ -103,7 +126,6 @@ public class MovementChecker {
         }
 
         // Calculate blocks per second.
-        long currentTime = System.currentTimeMillis();
         long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
         // Prevent division by zero and unreasonable values.
@@ -148,6 +170,8 @@ public class MovementChecker {
             plugin.getConfigManager().getVeryHighPingCompensation(),
             plugin.getConfigManager().getExtremePingCompensation(),
             plugin.getConfigManager().getVeryLowPingCompensation(),
+            plugin.getConfigManager().getUltraPingCompensation(),
+            plugin.getConfigManager().getInsanePingCompensation(),
             plugin.getConfigManager().getElytraGlidingMultiplier(),
             plugin.getConfigManager().getElytraLandingDuration()
         );
@@ -164,7 +188,7 @@ public class MovementChecker {
             // Check if the player just took damage or used riptide in the past 150ms.
             // This helps prevent race conditions between events and movement processing.
             if (!justTookDamage && !justUsedRiptide) {
-                int burstTolerance = plugin.getConfigManager().getBurstTolerance();
+                int burstTolerance = plugin.getConfigManager().getBurstToleranceForPing(ping);
 
                 int violations = speedViolationsCounter.getOrDefault(playerId, 0) + 1;
                 speedViolationsCounter.put(playerId, violations);
@@ -176,7 +200,7 @@ public class MovementChecker {
                         String vehicleInfo = isVehicle ? " (in vehicle)" : "";
                         plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " +
                                 String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " +
-                                String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms, violations: " + violations);
+                                String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms, violations: " + violations + "/" + burstTolerance);
                     }
                 } else if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(player.getName() + " exceeded speed but within burst tolerance (" +
@@ -195,12 +219,18 @@ public class MovementChecker {
         // Only check for flying if there's no speed violation yet.
         boolean flyingViolation = false;
         if (!speedViolation) {
-            // Skip flying check if player just used riptide
-            if (!justUsedRiptide) {
+            // Skip flying check if player just used riptide or is riding a ghast
+            boolean isRidingGhast = MovementUtils.isRidingGhast(player);
+            if (!justUsedRiptide && !isRidingGhast) {
                 flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks,
                                                           plugin.isDebugEnabled(), plugin.getLogger());
             } else if (plugin.isDebugEnabled() && airTicks.getOrDefault(playerId, 0) > 30) {
-                plugin.getLogger().info(player.getName() + " exempt from flight checks due to recent riptide use");
+                String reason = justUsedRiptide ? "recent riptide use" : "riding ghast";
+                if (isRidingGhast && player.getVehicle() != null) {
+                    String entityType = player.getVehicle().getType().toString();
+                    reason = "riding " + entityType.toLowerCase();
+                }
+                plugin.getLogger().info(player.getName() + " exempt from flight checks due to " + reason);
             }
         }
 
@@ -228,6 +258,8 @@ public class MovementChecker {
         operationLock.lock();
         try {
             movementBlockedUntil.put(playerId, blockedUntil);
+            // Record when this player was blocked to ignore old packets.
+            lastBlockedTime.put(playerId, currentTime);
         } finally {
             operationLock.unlock();
         }
@@ -303,5 +335,6 @@ public class MovementChecker {
         dragonDamage.remove(playerId);
         lastRiptideTime.remove(playerId);
         speedViolationsCounter.remove(playerId);
+        lastBlockedTime.remove(playerId);
     }
 }

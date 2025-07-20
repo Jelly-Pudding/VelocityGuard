@@ -49,7 +49,7 @@ public class PacketListener implements Listener {
             thread.setDaemon(true);
             return thread;
         });
-        plugin.getLogger().info("Initialising packet listener for Minecraft 1.21.4");
+        plugin.getLogger().info("Initialising packet listener");
     }
 
     public void inject() {
@@ -173,22 +173,17 @@ public class PacketListener implements Listener {
                             if (vehicle != null) {
                                 vehiclePackets.incrementAndGet();
 
-                                // Get coordinates from the packet.
                                 double packetX = vehiclePacket.position().x;
                                 double packetY = vehiclePacket.position().y;
                                 double packetZ = vehiclePacket.position().z;
 
-                                // Get current vehicle location.
                                 Location vehicleLocation = vehicle.getLocation();
 
-                                // Calculate movement vector directly.
                                 double dx = packetX - vehicleLocation.getX();
                                 double dy = packetY - vehicleLocation.getY();
                                 double dz = packetZ - vehicleLocation.getZ();
 
-                                // Only check if there's actual movement.
                                 if (dx*dx + dy*dy + dz*dz > 0.001) {
-                                    // Create player's current and destination locations.
                                     Location playerFrom = player.getLocation();
                                     Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
