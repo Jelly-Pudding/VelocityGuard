@@ -62,13 +62,44 @@ public class MovementUtils {
 
     public static boolean isInLiquid(Player player) {
         Location loc = player.getLocation();
+
+        if (player.isSwimming()) {
+            return true;
+        }
+
+        // Check current location and below
         Block block = loc.getBlock();
         Block blockBelow = loc.clone().subtract(0, 0.1, 0).getBlock();
 
-        return block.getType() == Material.WATER ||
-               block.getType() == Material.LAVA ||
-               blockBelow.getType() == Material.WATER ||
-               blockBelow.getType() == Material.LAVA;
+        if (block.getType() == Material.WATER || block.getType() == Material.LAVA ||
+            blockBelow.getType() == Material.WATER || blockBelow.getType() == Material.LAVA) {
+            return true;
+        }
+
+        // Check the player's eye location for water.
+        Location eyeLoc = player.getEyeLocation();
+        Block eyeBlock = eyeLoc.getBlock();
+        if (eyeBlock.getType() == Material.WATER || eyeBlock.getType() == Material.LAVA) {
+            return true;
+        }
+
+        // Check a bit deeper below the player.
+        Block deeperBelow = loc.clone().subtract(0, 0.5, 0).getBlock();
+        if (deeperBelow.getType() == Material.WATER || deeperBelow.getType() == Material.LAVA) {
+            return true;
+        }
+
+        // Check slightly around the player's position for water.
+        for (double x = -0.3; x <= 0.3; x += 0.3) {
+            for (double z = -0.3; z <= 0.3; z += 0.3) {
+                Block surroundingBlock = loc.clone().add(x, -0.2, z).getBlock();
+                if (surroundingBlock.getType() == Material.WATER || surroundingBlock.getType() == Material.LAVA) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public static boolean isOnIce(Player player) {
