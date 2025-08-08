@@ -1,5 +1,6 @@
 # VelocityGuard Configuration
-# This plugin helps prevent extreme speed and flight cheats.
+# This plugin helps prevent extreme movement (like excessive speed and blatant flight)
+# to reduce lag from players loading many chunks and to stop the most disruptive cases.
 
 # Configuration for detecting violations.
 checks:
@@ -77,6 +78,11 @@ checks:
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
     buffer-multiplier: 1.1
+
+  flight:
+    # Whether to run flight checks (hovering/ascending while not gliding/flying)
+    # Disable this if you only want speed limiting and no flight enforcement.
+    enabled: true
 
 # General settings.
 settings:

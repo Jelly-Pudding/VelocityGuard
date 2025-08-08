@@ -1,11 +1,12 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight Minecraft Paper 1.21.8 plugin designed to prevent extreme movement-based cheats like speed and flight. It uses direct packet interception for immediate detection and prevention of illegal movement. While it does **not** outright prevent all speed and flight cheats, it effectively stops the most extreme cases.
+**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.8 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.
 - **Movement Blocking**: Temporarily blocks movement when violations are detected.
 - **Pattern Detection**: Identifies suspicious movement patterns.
 - **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
+- **Optional Flight Checks**: Toggle whether to enforce anti-flight checks; keep only speed limiting if you prefer.
 - **Happy Ghast Compatible**: Fully supports players riding Happy Ghasts without triggering false flight violations.
 - **Latency Compensation**: Automatically adjusts speed checks based on player ping to prevent false positives on laggy connections.
 
@@ -94,6 +95,11 @@ checks:
     # Lower values = stricter checks, higher values = more lenient.
     buffer-multiplier: 1.1
 
+  flight:
+    # Whether to run flight checks (hovering/ascending while not gliding/flying)
+    # Disable this if you only want speed limiting and no flight enforcement.
+    enabled: true
+
 # General settings.
 settings:
   # Only enable if you are developing or testing the plugin
@@ -103,7 +109,7 @@ settings:
 
 ## How It Works
 1. The plugin intercepts player movement packets before they're processed.
-2. Each movement is checked against configured speed limits and flight rules.
+2. Each movement is checked against configured speed limits and (optionally) flight rules.
 3. The plugin considers various factors like knockback, potion effects, special movement states, and vehicle types (Happy Ghasts are exempt from flight checks).
 4. Sophisticated pattern detection identifies potential speed cheats that stay just under the defined thresholds.
 5. Invalid movements are rejected, and player movement is temporarily blocked.

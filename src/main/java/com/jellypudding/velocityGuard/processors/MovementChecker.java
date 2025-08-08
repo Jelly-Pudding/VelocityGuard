@@ -216,9 +216,9 @@ public class MovementChecker {
             speedViolationsCounter.put(playerId, 0);
         }
 
-        // Only check for flying if there's no speed violation yet.
+        // Only check for flying if there's no speed violation yet and flight checks are enabled.
         boolean flyingViolation = false;
-        if (!speedViolation) {
+        if (!speedViolation && plugin.getConfigManager().isFlightCheckEnabled()) {
             // Skip flying check if player just used riptide or is riding a ghast
             boolean isRidingGhast = MovementUtils.isRidingGhast(player);
             if (!justUsedRiptide && !isRidingGhast) {
@@ -269,7 +269,7 @@ public class MovementChecker {
             public void run() {
                 try {
                     if (player.isOnline()) {
-                        player.sendMessage("§c[VelocityGuard] §f" + reason + "! Movement blocked for " + blockDuration + " seconds.");
+                        player.sendMessage("§c[VelocityGuard] §f" + reason + ". Movement blocked for " + blockDuration + " seconds.");
 
                         if (plugin.isDebugEnabled()) {
                             plugin.getLogger().info("Blocked all movement for " + player.getName() +

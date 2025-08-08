@@ -19,6 +19,7 @@ public class ConfigManager {
     private final double vehicleIceSpeedMultiplier;
     private final double bufferMultiplier;
     private final boolean debugMode;
+    private final boolean flightCheckEnabled;
 
     private final boolean enableLatencyCompensation;
     private final double veryLowPingCompensation;
@@ -62,6 +63,8 @@ public class ConfigManager {
     private static final double DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER = 4.3;
     // Default buffer multiplier
     private static final double DEFAULT_BUFFER_MULTIPLIER = 1.1;
+    // Default flight check setting
+    private static final boolean DEFAULT_FLIGHT_CHECK_ENABLED = true;
 
     // Default latency compensation values
     private static final boolean DEFAULT_ENABLE_LATENCY_COMPENSATION = true;
@@ -101,6 +104,8 @@ public class ConfigManager {
         this.vehicleSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier", DEFAULT_VEHICLE_SPEED_MULTIPLIER));
         this.vehicleIceSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-ice-speed-multiplier", DEFAULT_VEHICLE_ICE_SPEED_MULTIPLIER));
         this.bufferMultiplier = Math.max(1.0, config.getDouble("checks.speed.buffer-multiplier", DEFAULT_BUFFER_MULTIPLIER));
+
+        this.flightCheckEnabled = config.getBoolean("checks.flight.enabled", DEFAULT_FLIGHT_CHECK_ENABLED);
 
         this.enableLatencyCompensation = config.getBoolean("checks.speed.latency-compensation.enabled", DEFAULT_ENABLE_LATENCY_COMPENSATION);
         this.veryLowPingCompensation = Math.max(1.0, config.getDouble("checks.speed.latency-compensation.very-low-ping", DEFAULT_VERY_LOW_PING_COMPENSATION));
@@ -176,6 +181,10 @@ public class ConfigManager {
 
     public boolean isLatencyCompensationEnabled() {
         return enableLatencyCompensation;
+    }
+
+    public boolean isFlightCheckEnabled() {
+        return flightCheckEnabled;
     }
 
     public double getVeryLowPingCompensation() {
