@@ -269,11 +269,12 @@ public class MovementChecker {
             public void run() {
                 try {
                     if (player.isOnline()) {
-                        player.sendMessage("§c[VelocityGuard] §f" + reason + ". Movement blocked for " + blockDuration + " seconds.");
+                        String unit = (blockDuration == 1) ? "second" : "seconds";
+                        player.sendMessage("§c[VelocityGuard] §f" + reason + ". Movement blocked for " + blockDuration + " " + unit + ".");
 
                         if (plugin.isDebugEnabled()) {
                             plugin.getLogger().info("Blocked all movement for " + player.getName() +
-                                    " for " + blockDuration + " seconds. Reason: " + reason);
+                                    " for " + blockDuration + " " + unit + ". Reason: " + reason);
                         }
                     }
                 } catch (Exception e) {
