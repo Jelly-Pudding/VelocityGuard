@@ -43,6 +43,10 @@ public final class VelocityGuard extends JavaPlugin {
         getCommand("velocityguard").setExecutor(command);
         getCommand("velocityguard").setTabCompleter(command);
 
+        // Initialise bStats
+        int pluginId = 27560;
+        new Metrics(this, pluginId);
+
         getLogger().info("VelocityGuard has been enabled.");
     }
 

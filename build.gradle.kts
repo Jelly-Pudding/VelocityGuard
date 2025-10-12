@@ -1,10 +1,10 @@
 plugins {
     `java-library`
-    id("io.papermc.paperweight.userdev") version "2.0.0-beta.17"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.19"
 }
 
 group = "com.jellypudding"
-version = "1.8"
+version = "1.9"
 
 repositories {
     mavenCentral()
@@ -12,7 +12,7 @@ repositories {
 }
 
 dependencies {
-    paperweight.paperDevBundle("1.21.8-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("1.21.10-R0.1-SNAPSHOT")
 }
 
 java {

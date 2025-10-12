@@ -1,5 +1,5 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.8 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
+**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.10 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.
@@ -18,6 +18,10 @@
 ## Configuration
 In `config.yml`, you can configure:
 ```yaml
+# VelocityGuard Configuration
+# This plugin helps prevent extreme movement (like excessive speed and blatant flight)
+# to reduce lag from players loading many chunks and to stop the most disruptive cases.
+
 # Configuration for detecting violations.
 checks:
   speed:
@@ -31,7 +35,7 @@ checks:
     # How many seconds to cancel movement when a violation is detected.
     # This will just refuse all movement packets for this duration.
     # Has to be an integer.
-    cancel-duration: 3
+    cancel-duration: 1
 
     # Latency compensation settings
     latency-compensation:
@@ -39,9 +43,9 @@ checks:
       enabled: true
       # Compensation factors for different ping ranges
       # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 1.1      # 21-50ms ping
-      low-ping: 2.1           # 51-100ms ping
-      medium-ping: 2.9        # 101-200ms ping
+      very-low-ping: 2.9      # 21-50ms ping
+      low-ping: 2.9           # 51-100ms ping
+      medium-ping: 3.3        # 101-200ms ping
       high-ping: 3.6          # 201-300ms ping
       very-high-ping: 4.6     # 301-500ms ping
       extreme-ping: 5.7       # 501-750ms ping
@@ -51,15 +55,15 @@ checks:
     # Burst tolerance settings - number of consecutive violations allowed before punishment
     # Higher ping players get more tolerance due to network inconsistency
     burst-tolerance:
-      default: 15             # ≤20ms ping (no compensation)
-      very-low-ping: 15       # 21-50ms ping
-      low-ping: 20            # 51-100ms ping
+      default: 19             # ≤20ms ping (no compensation)
+      very-low-ping: 20       # 21-50ms ping
+      low-ping: 21            # 51-100ms ping
       medium-ping: 22         # 101-200ms ping
       high-ping: 24           # 201-300ms ping
       very-high-ping: 27      # 301-500ms ping
       extreme-ping: 30        # 501-750ms ping
       ultra-ping: 33          # 751-1000ms ping
-      insane-ping: 35         # 1000+ms ping
+      insane-ping: 35        # 1001+ms ping
 
     # Knockback adjustment settings
     knockback:
@@ -71,14 +75,14 @@ checks:
     # Trident riptide handling.
     riptide:
       # Multiplier for speed threshold after using a trident with riptide enchantment.
-      multiplier: 8.0
+      multiplier: 1.5
       # Duration in milliseconds that the riptide effect lasts.
       duration: 3000
 
     # Elytra movement handling
     elytra:
       # Multiplier for speed threshold while gliding with elytra
-      gliding-multiplier: 3.0
+      gliding-multiplier: 1.5
       # Duration in milliseconds that landing adjustment lasts after stopping gliding
       landing-duration: 1500
 
@@ -93,12 +97,12 @@ checks:
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
-    buffer-multiplier: 1.1
+    buffer-multiplier: 1.2
 
   flight:
     # Whether to run flight checks (hovering/ascending while not gliding/flying)
     # Disable this if you only want speed limiting and no flight enforcement.
-    enabled: true
+    enabled: false
 
 # General settings.
 settings:
