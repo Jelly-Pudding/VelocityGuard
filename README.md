@@ -1,5 +1,5 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.10 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
+**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.11 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.
