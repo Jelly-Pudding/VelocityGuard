@@ -6,6 +6,8 @@ import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import org.bukkit.World;
+
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,6 +47,10 @@ public class MovementChecker {
 
     // Track when players were last blocked to ignore old movement packets
     private final Map<UUID, Long> lastBlockedTime = new ConcurrentHashMap<>();
+
+    // Players with per-player flight enforcement enabled via the API.
+    // Value indicates whether to ground the player on violation (true) or use the default block behaviour (false).
+    private final Map<UUID, Boolean> flightEnforcedPlayers = new ConcurrentHashMap<>();
 
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
@@ -216,9 +222,10 @@ public class MovementChecker {
             speedViolationsCounter.put(playerId, 0);
         }
 
-        // Only check for flying if there's no speed violation yet and flight checks are enabled.
+        // Only check for flying if there's no speed violation yet, and either the global
+        // flight check is enabled or this player has per-player enforcement active.
         boolean flyingViolation = false;
-        if (!speedViolation && plugin.getConfigManager().isFlightCheckEnabled()) {
+        if (!speedViolation && (plugin.getConfigManager().isFlightCheckEnabled() || flightEnforcedPlayers.containsKey(playerId))) {
             // Skip flying check if player just used riptide or is riding a ghast
             boolean isRidingGhast = MovementUtils.isRidingGhast(player);
             if (!justUsedRiptide && !isRidingGhast) {
@@ -234,16 +241,57 @@ public class MovementChecker {
             }
         }
 
-        // If a violation was detected, immediately block all movement
+        // If a violation was detected, immediately block all movement or ground the player
         if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
-            String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
-
-            // Block movement for the configured duration
-            blockPlayerMovement(player, message);
+            Boolean groundOnViolation = flightEnforcedPlayers.get(playerId);
+            if (Boolean.TRUE.equals(groundOnViolation)) {
+                groundPlayerForViolation(player);
+            } else {
+                String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
+                blockPlayerMovement(player, message);
+            }
             return false;
         }
 
         return true;
+    }
+
+    private void groundPlayerForViolation(Player player) {
+        UUID playerId = player.getUniqueId();
+        long currentTime = System.currentTimeMillis();
+
+        operationLock.lock();
+        try {
+            movementBlockedUntil.put(playerId, currentTime + 1000L);
+            lastBlockedTime.put(playerId, currentTime);
+        } finally {
+            operationLock.unlock();
+        }
+
+        airTicks.remove(playerId);
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    if (player.isOnline()) {
+                        Location loc = player.getLocation();
+                        World world = loc.getWorld();
+                        if (world != null) {
+                            int highestY = world.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
+                            Location ground = new Location(world, loc.getX(), highestY + 1, loc.getZ(),
+                                    loc.getYaw(), loc.getPitch());
+                            player.teleport(ground);
+                        }
+                        if (plugin.isDebugEnabled()) {
+                            plugin.getLogger().info("Grounded " + player.getName() + " after flight violation.");
+                        }
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error grounding player " + player.getName() + ": " + e.getMessage());
+                }
+            }
+        }.runTask(plugin);
     }
 
     private void blockPlayerMovement(Player player, String reason) {
@@ -337,5 +385,20 @@ public class MovementChecker {
         lastRiptideTime.remove(playerId);
         speedViolationsCounter.remove(playerId);
         lastBlockedTime.remove(playerId);
+        flightEnforcedPlayers.remove(playerId);
+    }
+
+    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation) {
+        if (playerId == null) return;
+        flightEnforcedPlayers.put(playerId, groundOnViolation);
+    }
+
+    public void removeFlightEnforcement(UUID playerId) {
+        if (playerId == null) return;
+        flightEnforcedPlayers.remove(playerId);
+    }
+
+    public boolean isFlightEnforced(UUID playerId) {
+        return playerId != null && flightEnforcedPlayers.containsKey(playerId);
     }
 }

@@ -126,5 +126,37 @@ settings:
 ## Permissions
 `velocityguard.admin`: Allows reloading the plugin configuration (default: op).
 
+## Developer API
+
+Enforce flight checks on specific players from another plugin, regardless of the global `config.yml` setting.
+
+**Setup** — add to your `plugin.yml`:
+```yaml
+softdepend: [VelocityGuard]
+```
+Add the VelocityGuard jar to your compile classpath, then get the API instance:
+```java
+VelocityGuard vg = (VelocityGuard) Bukkit.getPluginManager().getPlugin("VelocityGuard");
+if (vg == null) return;
+VelocityGuardAPI api = vg.getAPI();
+```
+
+**Methods:**
+```java
+// Enable flight enforcement. On violation the player is teleported to the ground (default).
+api.enableFlightEnforcement(player);
+
+// Pass false to use the standard movement-block behaviour instead of grounding.
+api.enableFlightEnforcement(player, false);
+
+// Remove enforcement (e.g. when the player leaves the zone).
+api.disableFlightEnforcement(player);
+
+// Query whether enforcement is currently active for a player.
+api.isFlightEnforcementActive(player);
+```
+
+Player data is cleaned up automatically on disconnect.
+
 ## Support Me
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K3K715TC1R)

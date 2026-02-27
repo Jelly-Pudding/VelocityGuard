@@ -1,5 +1,6 @@
 package com.jellypudding.velocityGuard;
 
+import com.jellypudding.velocityGuard.api.VelocityGuardAPI;
 import com.jellypudding.velocityGuard.commands.VelocityGuardCommand;
 import com.jellypudding.velocityGuard.listeners.PacketListener;
 import com.jellypudding.velocityGuard.listeners.DamageListener;
@@ -13,6 +14,7 @@ public final class VelocityGuard extends JavaPlugin {
 
     private ConfigManager configManager;
     private MovementChecker movementChecker;
+    private VelocityGuardAPI api;
     private PacketListener packetListener;
     private DamageListener damageListener;
     private TeleportListener teleportListener;
@@ -24,6 +26,7 @@ public final class VelocityGuard extends JavaPlugin {
         this.configManager = new ConfigManager(this);
 
         this.movementChecker = new MovementChecker(this);
+        this.api = new VelocityGuardAPI(this);
 
         this.packetListener = new PacketListener(this);
         this.damageListener = new DamageListener(this);
@@ -72,9 +75,14 @@ public final class VelocityGuard extends JavaPlugin {
         return configManager != null && configManager.isDebugModeEnabled();
     }
 
+    public VelocityGuardAPI getAPI() {
+        return api;
+    }
+
     public void reloadConfigManager() {
         reloadConfig();
         this.configManager = new ConfigManager(this);
         this.movementChecker = new MovementChecker(this);
+        this.api = new VelocityGuardAPI(this);
     }
 }
