@@ -285,7 +285,7 @@ public class MovementChecker {
 
         // If a violation was detected, immediately block all movement or ground the player
         if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) >= flightThreshold)) {
-            if (enforcementConfig != null && enforcementConfig.groundOnViolation()) {
+            if (!speedViolation && enforcementConfig != null && enforcementConfig.groundOnViolation()) {
                 groundPlayerForViolation(player);
             } else {
                 String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
