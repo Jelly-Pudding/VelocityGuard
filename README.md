@@ -136,6 +136,9 @@ softdepend: [VelocityGuard]
 ```
 Add the VelocityGuard jar to your compile classpath, then get the API instance:
 ```java
+import com.jellypudding.velocityGuard.VelocityGuard;
+import com.jellypudding.velocityGuard.api.VelocityGuardAPI;
+
 VelocityGuard vg = (VelocityGuard) Bukkit.getPluginManager().getPlugin("VelocityGuard");
 if (vg == null) return;
 VelocityGuardAPI api = vg.getAPI();
