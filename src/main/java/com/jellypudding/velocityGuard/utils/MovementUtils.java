@@ -245,9 +245,9 @@ public class MovementUtils {
 
         // Scale the start-check windows down proportionally so stricter thresholds
         // don't get defeated by the early-entry guards remaining at 25/30.
-        // Normal jump apex is around 11-13 ticks, so floor at 14 to avoid false positives.
-        int hoverCheckStart  = Math.max(14, Math.min(25, violationThreshold - 5));
-        int ascendCheckStart = Math.max(14, Math.min(30, violationThreshold));
+        // Normal jump apex is around 11-13 ticks, so floor at 15 to avoid false positives.
+        int hoverCheckStart  = Math.max(15, Math.min(25, violationThreshold - 5));
+        int ascendCheckStart = Math.max(15, Math.min(30, violationThreshold));
 
         if (player.hasPotionEffect(PotionEffectType.LEVITATION)) {
             if (debugEnabled && airTicksMap.getOrDefault(playerId, 0) > hoverCheckStart) {

@@ -1,14 +1,15 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.11 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance.
+**VelocityGuard** is a lightweight, lenient Minecraft Paper 1.21.11 plugin focused on preventing extreme movement (excessive speed and flight). It uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance. A developer API is also provided for other plugins to enforce flight checks on specific players on demand (e.g. within a no-fly zone).
 
 ## Features
 - **Direct Detection**: Detects cheating in real-time at the packet level.
 - **Movement Blocking**: Temporarily blocks movement when violations are detected.
 - **Pattern Detection**: Identifies suspicious movement patterns.
 - **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
-- **Optional Flight Checks**: Toggle whether to enforce anti-flight checks; keep only speed limiting if you prefer.
+- **Optional Flight Checks**: Toggle whether to enforce anti-flight checks globally; keep only speed limiting if you prefer.
 - **Happy Ghast Compatible**: Fully supports players riding Happy Ghasts without triggering false flight violations.
 - **Latency Compensation**: Automatically adjusts speed checks based on player ping to prevent false positives on laggy connections.
+- **Developer API**: Lets other plugins enforce flight checks on individual players regardless of the global setting. Configurable sensitivity and response (ground the player or block movement).
 
 ## Installation
 1. Download the latest release [here](https://github.com/Jelly-Pudding/velocityguard/releases/latest).
@@ -128,7 +129,7 @@ settings:
 
 ## Developer API
 
-Enforce flight checks on specific players from another plugin, regardless of the global `config.yml` setting.
+Enforce flight checks on individual players from another plugin regardless of the global `config.yml` setting. Designed for use cases like no-fly zones.
 
 **Setup** — add to your `plugin.yml`:
 ```yaml
@@ -146,28 +147,31 @@ VelocityGuardAPI api = vg.getAPI();
 
 **Methods:**
 ```java
-// Enable flight enforcement with strict sensitivity (recommended for zones).
-// On violation the player is teleported to the ground.
+// Enable flight enforcement for a player (e.g. on zone entry).
+// Defaults: ground the player on violation, strict sensitivity (~1 s).
 api.enableFlightEnforcement(player);
 
-// Control grounding vs movement-block behaviour explicitly.
-api.enableFlightEnforcement(player, false); // false = standard movement-block
+// Choose what happens on violation:
+//   true  = teleport to highest solid block beneath the player (default)
+//   false = standard VelocityGuard movement-block behaviour
+api.enableFlightEnforcement(player, false);
 
-// Control sensitivity via air-tick threshold (one tick ≈ 50 ms at 20 TPS).
-// A normal jump lands by ~tick 15, so stay at or above 15 to avoid false positives.
-// VelocityGuardAPI.STRICT_AIR_TICK_THRESHOLD (20) and DEFAULT_AIR_TICK_THRESHOLD (40)
-// are provided as named constants.
-api.enableFlightEnforcement(player, true, 20);  // ~1 s — strict zone enforcement
-api.enableFlightEnforcement(player, true, 40);  // ~2 s — matches global default
+// Also control sensitivity via air-tick threshold.
+// One tick ≈ 50 ms at 20 TPS. A normal jump lands by ~tick 15,
+// so values below 15 risk false positives. Named constants are provided:
+//   STRICT_AIR_TICK_THRESHOLD  = 20  (~1 s, recommended for zones)
+//   DEFAULT_AIR_TICK_THRESHOLD = 40  (~2 s, matches the global config default)
+api.enableFlightEnforcement(player, true, VelocityGuardAPI.STRICT_AIR_TICK_THRESHOLD);
+api.enableFlightEnforcement(player, true, VelocityGuardAPI.DEFAULT_AIR_TICK_THRESHOLD);
 
-// Remove enforcement (e.g. when the player leaves the zone).
+// Remove enforcement (e.g. on zone exit).
 api.disableFlightEnforcement(player);
 
 // Query whether enforcement is currently active for a player.
 api.isFlightEnforcementActive(player);
 ```
 
-Player data is cleaned up automatically on disconnect.
+Player data is cleaned up automatically on disconnect, so you only need to call `disableFlightEnforcement` on zone exit not on quit.
 
 ## Support Me
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K3K715TC1R)
