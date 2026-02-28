@@ -78,6 +78,12 @@ public class MovementChecker {
                     Long blockedUntil = movementBlockedUntil.get(playerId);
                     if (blockedUntil != null && currentTime < blockedUntil) continue;
 
+                    // Skip players who are actively sending movement packets — they are
+                    // jumping/moving and are already covered by the packet-based check.
+                    // This prevents false positives on normal jumps.
+                    Long lastMove = lastMoveTime.get(playerId);
+                    if (lastMove != null && currentTime - lastMove < 1000L) continue;
+
                     Player player = plugin.getServer().getPlayer(playerId);
                     if (player == null || !player.isOnline()) continue;
                     if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) continue;
