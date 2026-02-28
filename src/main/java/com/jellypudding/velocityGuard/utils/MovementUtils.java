@@ -237,13 +237,20 @@ public class MovementUtils {
 
     public static boolean checkFlying(Player player, Location from, Location to,
                                      Map<UUID, Integer> airTicksMap,
-                                     boolean debugEnabled, Logger logger) {
+                                     boolean debugEnabled, Logger logger,
+                                     int violationThreshold) {
         UUID playerId = player.getUniqueId();
         boolean isNearGround = isNearGround(player);
         boolean inWater = isInLiquid(player);
 
+        // Scale the start-check windows down proportionally so stricter thresholds
+        // don't get defeated by the early-entry guards remaining at 25/30.
+        // Normal jump apex is around 11-13 ticks, so floor at 14 to avoid false positives.
+        int hoverCheckStart  = Math.max(14, Math.min(25, violationThreshold - 5));
+        int ascendCheckStart = Math.max(14, Math.min(30, violationThreshold));
+
         if (player.hasPotionEffect(PotionEffectType.LEVITATION)) {
-            if (debugEnabled && airTicksMap.getOrDefault(playerId, 0) > 25) {
+            if (debugEnabled && airTicksMap.getOrDefault(playerId, 0) > hoverCheckStart) {
                 logger.info(player.getName() + " has levitation effect - ignoring flight checks");
             }
             return false;
@@ -260,22 +267,21 @@ public class MovementUtils {
             airTicksMap.put(playerId, currentAirTicks);
 
             // Only check for fly cheats if player has been in air for a while (not just jumping).
-            // Normal jump apex is around 11-13 ticks.
-            if (currentAirTicks > 25) {
+            if (currentAirTicks > hoverCheckStart) {
                 // Check for hovering (staying at same Y level while in air).
                 if (Math.abs(to.getY() - from.getY()) < 0.05 && !player.isGliding() && !player.isFlying()) {
                     if (debugEnabled) {
                         logger.info(player.getName() + " potential hover cheat: air ticks=" + currentAirTicks);
                     }
-                    return currentAirTicks > 40;
+                    return currentAirTicks >= violationThreshold;
                 }
 
                 // Check for ascending in air (only after being in air long enough).
-                if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks > 30) {
+                if (to.getY() > from.getY() && !player.isGliding() && !player.isFlying() && currentAirTicks >= ascendCheckStart) {
                     if (debugEnabled) {
                         logger.info(player.getName() + " ascending in air after " + currentAirTicks + " ticks");
                     }
-                    return currentAirTicks > 40;
+                    return currentAirTicks >= violationThreshold;
                 }
             }
         }

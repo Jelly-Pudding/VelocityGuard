@@ -146,11 +146,19 @@ VelocityGuardAPI api = vg.getAPI();
 
 **Methods:**
 ```java
-// Enable flight enforcement. On violation the player is teleported to the ground (default).
+// Enable flight enforcement with strict sensitivity (recommended for zones).
+// On violation the player is teleported to the ground.
 api.enableFlightEnforcement(player);
 
-// Pass false to use the standard movement-block behaviour instead of grounding.
-api.enableFlightEnforcement(player, false);
+// Control grounding vs movement-block behaviour explicitly.
+api.enableFlightEnforcement(player, false); // false = standard movement-block
+
+// Control sensitivity via air-tick threshold (one tick ≈ 50 ms at 20 TPS).
+// A normal jump lands by ~tick 15, so stay at or above 15 to avoid false positives.
+// VelocityGuardAPI.STRICT_AIR_TICK_THRESHOLD (20) and DEFAULT_AIR_TICK_THRESHOLD (40)
+// are provided as named constants.
+api.enableFlightEnforcement(player, true, 20);  // ~1 s — strict zone enforcement
+api.enableFlightEnforcement(player, true, 40);  // ~2 s — matches global default
 
 // Remove enforcement (e.g. when the player leaves the zone).
 api.disableFlightEnforcement(player);

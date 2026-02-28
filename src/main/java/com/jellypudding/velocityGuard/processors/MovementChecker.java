@@ -48,9 +48,10 @@ public class MovementChecker {
     // Track when players were last blocked to ignore old movement packets
     private final Map<UUID, Long> lastBlockedTime = new ConcurrentHashMap<>();
 
+    private record FlightEnforcementConfig(boolean groundOnViolation, int airTickThreshold) {}
+
     // Players with per-player flight enforcement enabled via the API.
-    // Value indicates whether to ground the player on violation (true) or use the default block behaviour (false).
-    private final Map<UUID, Boolean> flightEnforcedPlayers = new ConcurrentHashMap<>();
+    private final Map<UUID, FlightEnforcementConfig> flightEnforcedPlayers = new ConcurrentHashMap<>();
 
     // Lock for operations
     private final ReentrantLock operationLock = new ReentrantLock();
@@ -224,13 +225,17 @@ public class MovementChecker {
 
         // Only check for flying if there's no speed violation yet, and either the global
         // flight check is enabled or this player has per-player enforcement active.
+        FlightEnforcementConfig enforcementConfig = flightEnforcedPlayers.get(playerId);
+        int flightThreshold = enforcementConfig != null ? enforcementConfig.airTickThreshold() : 40;
+
         boolean flyingViolation = false;
-        if (!speedViolation && (plugin.getConfigManager().isFlightCheckEnabled() || flightEnforcedPlayers.containsKey(playerId))) {
+        if (!speedViolation && (plugin.getConfigManager().isFlightCheckEnabled() || enforcementConfig != null)) {
             // Skip flying check if player just used riptide or is riding a ghast
             boolean isRidingGhast = MovementUtils.isRidingGhast(player);
             if (!justUsedRiptide && !isRidingGhast) {
                 flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks,
-                                                          plugin.isDebugEnabled(), plugin.getLogger());
+                                                          plugin.isDebugEnabled(), plugin.getLogger(),
+                                                          flightThreshold);
             } else if (plugin.isDebugEnabled() && airTicks.getOrDefault(playerId, 0) > 30) {
                 String reason = justUsedRiptide ? "recent riptide use" : "riding ghast";
                 if (isRidingGhast && player.getVehicle() != null) {
@@ -242,9 +247,8 @@ public class MovementChecker {
         }
 
         // If a violation was detected, immediately block all movement or ground the player
-        if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) > 40)) {
-            Boolean groundOnViolation = flightEnforcedPlayers.get(playerId);
-            if (Boolean.TRUE.equals(groundOnViolation)) {
+        if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) >= flightThreshold)) {
+            if (enforcementConfig != null && enforcementConfig.groundOnViolation()) {
                 groundPlayerForViolation(player);
             } else {
                 String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
@@ -388,9 +392,9 @@ public class MovementChecker {
         flightEnforcedPlayers.remove(playerId);
     }
 
-    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation) {
+    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation, int airTickThreshold) {
         if (playerId == null) return;
-        flightEnforcedPlayers.put(playerId, groundOnViolation);
+        flightEnforcedPlayers.put(playerId, new FlightEnforcementConfig(groundOnViolation, airTickThreshold));
     }
 
     public void removeFlightEnforcement(UUID playerId) {
