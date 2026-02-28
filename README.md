@@ -148,11 +148,12 @@ VelocityGuardAPI api = vg.getAPI();
 **Methods:**
 ```java
 // Enable flight enforcement for a player (e.g. on zone entry).
-// Defaults: ground the player on violation, strict sensitivity (~1 s).
+// Defaults: ground on violation, strict sensitivity (~1 s),
+// and a periodic check every ~0.5 s for players who fly up and go stationary.
 api.enableFlightEnforcement(player);
 
-// Choose what happens on violation:
-//   true  = teleport to highest solid block beneath the player (default)
+// Control what happens on violation:
+//   true  = teleport to highest solid block (default)
 //   false = standard VelocityGuard movement-block behaviour
 api.enableFlightEnforcement(player, false);
 
@@ -162,7 +163,10 @@ api.enableFlightEnforcement(player, false);
 //   STRICT_AIR_TICK_THRESHOLD  = 20  (~1 s, recommended for zones)
 //   DEFAULT_AIR_TICK_THRESHOLD = 40  (~2 s, matches the global config default)
 api.enableFlightEnforcement(player, true, VelocityGuardAPI.STRICT_AIR_TICK_THRESHOLD);
-api.enableFlightEnforcement(player, true, VelocityGuardAPI.DEFAULT_AIR_TICK_THRESHOLD);
+
+// fourth parameter disables the stationary check if unwanted.
+// (groundOnViolation, airTickThreshold, groundWhenStationary)
+api.enableFlightEnforcement(player, true, VelocityGuardAPI.STRICT_AIR_TICK_THRESHOLD, false);
 
 // Remove enforcement (e.g. on zone exit).
 api.disableFlightEnforcement(player);
@@ -171,7 +175,7 @@ api.disableFlightEnforcement(player);
 api.isFlightEnforcementActive(player);
 ```
 
-Player data is cleaned up automatically on disconnect, so you only need to call `disableFlightEnforcement` on zone exit not on quit.
+Player data is cleaned up automatically on disconnect, so you only need to call `disableFlightEnforcement` on zone exit, not on quit.
 
 ## Support Me
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K3K715TC1R)

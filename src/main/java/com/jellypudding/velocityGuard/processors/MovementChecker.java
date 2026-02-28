@@ -2,11 +2,12 @@ package com.jellypudding.velocityGuard.processors;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
-
 import org.bukkit.World;
+import org.bukkit.entity.Player;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Map;
 import java.util.UUID;
@@ -48,7 +49,7 @@ public class MovementChecker {
     // Track when players were last blocked to ignore old movement packets
     private final Map<UUID, Long> lastBlockedTime = new ConcurrentHashMap<>();
 
-    private record FlightEnforcementConfig(boolean groundOnViolation, int airTickThreshold) {}
+    private record FlightEnforcementConfig(boolean groundOnViolation, int airTickThreshold, boolean groundWhenStationary) {}
 
     // Players with per-player flight enforcement enabled via the API.
     private final Map<UUID, FlightEnforcementConfig> flightEnforcedPlayers = new ConcurrentHashMap<>();
@@ -58,6 +59,36 @@ public class MovementChecker {
 
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
+        startStationaryGroundCheck();
+    }
+
+    private void startStationaryGroundCheck() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (flightEnforcedPlayers.isEmpty()) return;
+                long currentTime = System.currentTimeMillis();
+
+                for (Map.Entry<UUID, FlightEnforcementConfig> entry : flightEnforcedPlayers.entrySet()) {
+                    if (!entry.getValue().groundWhenStationary()) continue;
+
+                    UUID playerId = entry.getKey();
+
+                    // Skip players already being handled by a recent violation response
+                    Long blockedUntil = movementBlockedUntil.get(playerId);
+                    if (blockedUntil != null && currentTime < blockedUntil) continue;
+
+                    Player player = plugin.getServer().getPlayer(playerId);
+                    if (player == null || !player.isOnline()) continue;
+                    if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) continue;
+                    if (player.isGliding() || player.isFlying()) continue;
+                    if (player.hasPotionEffect(PotionEffectType.LEVITATION)) continue;
+                    if (MovementUtils.isNearGround(player) || MovementUtils.isInLiquid(player)) continue;
+
+                    groundPlayerForViolation(player);
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 10L);
     }
 
     // This method only returns true if the player is allowed to move.
@@ -392,9 +423,9 @@ public class MovementChecker {
         flightEnforcedPlayers.remove(playerId);
     }
 
-    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation, int airTickThreshold) {
+    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation, int airTickThreshold, boolean groundWhenStationary) {
         if (playerId == null) return;
-        flightEnforcedPlayers.put(playerId, new FlightEnforcementConfig(groundOnViolation, airTickThreshold));
+        flightEnforcedPlayers.put(playerId, new FlightEnforcementConfig(groundOnViolation, airTickThreshold, groundWhenStationary));
     }
 
     public void removeFlightEnforcement(UUID playerId) {
