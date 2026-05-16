@@ -114,7 +114,7 @@ public class MovementChecker {
         if (blockedUntil != null && currentTime < blockedUntil) {
             if (plugin.isDebugEnabled()) {
                 long remainingTime = (blockedUntil - currentTime) / 1000;
-                if (remainingTime % 1 == 0) {
+                if (remainingTime % 5 == 0) {
                     plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
                 }
             }
@@ -170,10 +170,19 @@ public class MovementChecker {
         }
 
         // Calculate blocks per second.
-        long timeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
+        long rawTimeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
         lastMoveTime.put(playerId, currentTime);
+
+        boolean lagSpikeRecovery = rawTimeDelta > 400;
+        if (lagSpikeRecovery) {
+            speedViolationsCounter.put(playerId, 0);
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(player.getName() + " lag spike (" + rawTimeDelta + "ms gap) - skipping speed check");
+            }
+        }
+
         // Prevent division by zero and unreasonable values.
-        timeDelta = Math.max(25, Math.min(timeDelta, 200));
+        long timeDelta = Math.max(25, Math.min(rawTimeDelta, 200));
         double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
         // Blocks per second.
         double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
@@ -228,7 +237,7 @@ public class MovementChecker {
         boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 150);
         boolean justUsedRiptide = recentRiptide != null && (currentTime - recentRiptide < 1500);
 
-        if (horizontalSpeed > maxSpeed) {
+        if (!lagSpikeRecovery && horizontalSpeed > maxSpeed) {
             // Check if the player just took damage or used riptide in the past 150ms.
             // This helps prevent race conditions between events and movement processing.
             if (!justTookDamage && !justUsedRiptide) {

@@ -35,9 +35,9 @@ checks:
     # Burst tolerance settings - number of consecutive violations allowed before punishment
     # Higher ping players get more tolerance due to network inconsistency
     burst-tolerance:
-      default: 19             # ≤20ms ping (no compensation)
-      very-low-ping: 20       # 21-50ms ping
-      low-ping: 21            # 51-100ms ping
+      default: 22             # ≤20ms ping
+      very-low-ping: 22       # 21-50ms ping
+      low-ping: 22            # 51-100ms ping
       medium-ping: 22         # 101-200ms ping
       high-ping: 24           # 201-300ms ping
       very-high-ping: 27      # 301-500ms ping
@@ -55,20 +55,20 @@ checks:
     # Trident riptide handling.
     riptide:
       # Multiplier for speed threshold after using a trident with riptide enchantment.
-      multiplier: 1.5
+      multiplier: 2.5
       # Duration in milliseconds that the riptide effect lasts.
       duration: 3000
 
     # Elytra movement handling
     elytra:
       # Multiplier for speed threshold while gliding with elytra
-      gliding-multiplier: 1.5
+      gliding-multiplier: 2.1
       # Duration in milliseconds that landing adjustment lasts after stopping gliding
       landing-duration: 1500
 
     # Vehicle speed multipliers.
     # Regular vehicle speed multiplier.
-    vehicle-speed-multiplier: 1.9
+    vehicle-speed-multiplier: 1.5
 
     # Ice vehicle speed multiplier - only applies when vehicles are on ice.
     # Boats on ice can move especially fast.
@@ -77,7 +77,7 @@ checks:
     # Extra buffer multiplier applied to all speed checks.
     # This provides some leeway to prevent false positives.
     # Lower values = stricter checks, higher values = more lenient.
-    buffer-multiplier: 1.2
+    buffer-multiplier: 1.4
 
   flight:
     # Whether to run flight checks (hovering/ascending while not gliding/flying)
