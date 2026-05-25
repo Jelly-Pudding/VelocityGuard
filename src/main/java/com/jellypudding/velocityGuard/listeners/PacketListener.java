@@ -6,9 +6,12 @@ import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -157,7 +160,11 @@ public class PacketListener implements Listener {
                                 if (from.distanceSquared(to) > 0.001) {
                                     successfulPackets.incrementAndGet();
 
-                                    boolean allowed = plugin.getMovementChecker().processMovement(player, from, to, false);
+                                    // Pass the client's own onGround flag so jump detection
+                                    // is tick-accurate (the client sets this false the moment
+                                    // it jumps; our server-side isNearGroundAt check lags by
+                                    // roughly one packet).
+                                    boolean allowed = plugin.getMovementChecker().processMovement(player, from, to, false, movePacket.isOnGround());
 
                                     if (!allowed) {
                                         // Don't call super.channelRead - this effectively cancels the packet.
@@ -187,7 +194,8 @@ public class PacketListener implements Listener {
                                     Location playerFrom = player.getLocation();
                                     Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
-                                    boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo, true);
+                                    // No onGround flag in vehicle packets; fall back to server-side check.
+                                    boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo, true, false);
 
                                     if (!allowed) {
                                         // Don't call super.channelRead - this effectively cancels the packet.
@@ -242,6 +250,23 @@ public class PacketListener implements Listener {
             });
             return null;
         }
+    }
+
+    // Reset movement state whenever the player is teleported (portals, /tp, etc.)
+    // so the first post-teleport packet isn't flagged as excessive movement.
+    // MONITOR priority + ignoreCancelled ensures we only act on successful teleports.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        Location to = event.getTo();
+        if (to == null) return;
+        plugin.getMovementChecker().resetPlayerState(event.getPlayer(), to);
+    }
+
+    // PlayerRespawnEvent is a separate code path from teleports in Bukkit.
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        plugin.getMovementChecker().resetPlayerState(
+                event.getPlayer(), event.getRespawnLocation());
     }
 
     public void uninject() {

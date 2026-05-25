@@ -1,15 +1,15 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a lightweight, lenient Minecraft Paper 26.1.2 plugin focused on preventing extreme movement (excessive speed and flight). Although it was custom built for [minecraftoffline.net](https://www.minecraftoffline.net), any server can use it. The plugin uses direct packet interception to immediately stop illegal movement spikes that cause chunk-loading lag. It is intentionally lenient: it will not block most cheats, but it will reliably curb the most extreme movements that harm server performance. A developer API is also provided for other plugins to enforce flight checks on specific players on demand (e.g. within a no-fly zone).
+**VelocityGuard** is a Minecraft Paper 26.1.2 anti-cheat plugin that prevents flight and speed cheats. Although it was custom built for [minecraftoffline.net](https://www.minecraftoffline.net), any server can use it. The plugin intercepts movement packets and runs a server-side physics simulation to predict the maximum displacement a player could legitimately produce each tick. A developer API is also provided for other plugins to enforce flight checks on specific players on demand (e.g. within a no-fly zone).
 
 ## Features
-- **Direct Detection**: Detects cheating in real-time at the packet level.
-- **Movement Blocking**: Temporarily blocks movement when violations are detected.
-- **Pattern Detection**: Identifies suspicious movement patterns.
-- **Adaptive System**: Handles knockback, boats, horses, potions, trident riptide, and special movement states (swimming, flying, elytra gliding).
-- **Optional Flight Checks**: Toggle whether to enforce anti-flight checks globally; keep only speed limiting if you prefer.
-- **Happy Ghast Compatible**: Fully supports players riding Happy Ghasts without triggering false flight violations.
-- **Latency Compensation**: Automatically adjusts speed checks based on player ping to prevent false positives on laggy connections.
-- **Developer API**: Lets other plugins enforce flight checks on individual players regardless of the global setting. Configurable sensitivity and response (ground the player or block movement).
+- **Full 3D Physics Simulation**: Speed and flight checks are based on Minecraft's actual movement equations for both horizontal and vertical axes.
+- **Direct Detection**: Detects cheating at the packet level on the Netty thread before the server processes the move.
+- **Violation Buffer**: Excess displacement accumulates in a buffer that decays on clean packets so a single lag spike should not trigger a false positive.
+- **Movement Blocking**: Temporarily blocks movement when a violation is confirmed.
+- **Adaptive Exemptions**: Handles knockback, riptide, elytra landing, potions, boats, horses, swimming, levitation, and happy ghasts automatically.
+- **Leniency Multiplier**: A single top-level knob to loosen all checks at once without touching individual parameters.
+- **Toggleable Flight Check**: Physics-based Y simulation catches hover and ascent cheats.
+- **Developer API**: Lets other plugins enforce no-fly zones on specific players on demand.
 
 ## Installation
 1. Download the latest release [here](https://github.com/Jelly-Pudding/velocityguard/releases/latest).
@@ -17,109 +17,83 @@
 3. Restart your server.
 
 ## Configuration
-In `config.yml`, you can configure:
+In `config.yml`:
 ```yaml
 # VelocityGuard Configuration
-# This plugin helps prevent extreme movement (like excessive speed and blatant flight)
-# to reduce lag from players loading many chunks and to stop the most disruptive cases.
+#
+# Speed enforcement uses a physics simulation.
+# On each movement packet VelocityGuard runs Minecraft's own
+# horizontal movement equations to predict the maximum displacement the player
+# could legitimately produce and then compares that against what the packet claims.
 
-# Configuration for detecting violations.
 checks:
-  speed:
-    # Maximum horizontal speed in blocks per SECOND
-    # Default vanilla walking speed: ~4.3 blocks/s
-    # Default vanilla sprinting speed: ~5.6 blocks/s
-    # Sprint-jumping can reach speeds of ~9-10 blocks/s temporarily
-    # Recommended setting: 10.0 to allow for normal sprint-jumping with a buffer
-    max-horizontal-speed: 10.0
+  # Global leniency multiplier applied to every max-allowed displacement value.
+  # Raise to allow more movement before a flag fires; lower toward 1.0 for
+  # stricter enforcement. Must be >= 1.0.
+  # For example 1.10 = 10% headroom above the raw physics prediction.
+  leniency-multiplier: 1.0
 
-    # How many seconds to cancel movement when a violation is detected.
-    # This will just refuse all movement packets for this duration.
-    # Has to be an integer.
+  speed:
+    # Maximum client ticks to credit for a single delayed packet.
+    max-lag-ticks: 20
+
+    # Extra displacement slack (blocks) added per expected tick.
+    # Absorbs sub-block floating-point variance between client and server.
+    per-tick-tolerance: 0.08
+
+    # Accumulated excess displacement (blocks) before a violation fires.
+    # The buffer decays on clean packets so only *sustained* cheating reaches
+    # this value.
+    violation-threshold: 2.0
+
+    # Blocks subtracted from the violation buffer per clean (normal) packet.
+    violation-decay: 0.15
+
+    # Seconds to block all movement after a confirmed violation.
     cancel-duration: 1
 
-    # Latency compensation settings
-    latency-compensation:
-      # Whether to enable latency compensation
-      enabled: true
-      # Compensation factors for different ping ranges
-      # 1.0 means no compensation. Higher values allow more speed
-      very-low-ping: 2.9      # 21-50ms ping
-      low-ping: 2.9           # 51-100ms ping
-      medium-ping: 3.3        # 101-200ms ping
-      high-ping: 3.6          # 201-300ms ping
-      very-high-ping: 4.6     # 301-500ms ping
-      extreme-ping: 5.7       # 501-750ms ping
-      ultra-ping: 6.6         # 751-1000ms ping
-      insane-ping: 7.5        # 1000+ms ping
-
-    # Burst tolerance settings - number of consecutive violations allowed before punishment
-    # Higher ping players get more tolerance due to network inconsistency
-    burst-tolerance:
-      default: 19             # ≤20ms ping (no compensation)
-      very-low-ping: 20       # 21-50ms ping
-      low-ping: 21            # 51-100ms ping
-      medium-ping: 22         # 101-200ms ping
-      high-ping: 24           # 201-300ms ping
-      very-high-ping: 27      # 301-500ms ping
-      extreme-ping: 30        # 501-750ms ping
-      ultra-ping: 33          # 751-1000ms ping
-      insane-ping: 35        # 1001+ms ping
-
-    # Knockback adjustment settings
+    # Knockback from being hit: the large initial velocity is modelled by
+    # scaling the tracked speed; this controls how long and how strongly.
     knockback:
-      # Multiplier for speed threshold after taking damage.
       multiplier: 6.0
-      # Duration in milliseconds that knockback effect lasts.
-      duration: 1000
+      duration: 1000  # ms over which the allowance linearly fades to 0
 
-    # Trident riptide handling.
+    # Riptide trident boost.
     riptide:
-      # Multiplier for speed threshold after using a trident with riptide enchantment.
-      multiplier: 1.5
-      # Duration in milliseconds that the riptide effect lasts.
+      multiplier: 2.5
       duration: 3000
 
-    # Elytra movement handling
+    # Elytra landing: horizontal momentum carries briefly after stopping glide.
     elytra:
-      # Multiplier for speed threshold while gliding with elytra
-      gliding-multiplier: 1.5
-      # Duration in milliseconds that landing adjustment lasts after stopping gliding
-      landing-duration: 1500
+      landing-duration: 1500  # ms of post-landing buffer
 
-    # Vehicle speed multipliers.
-    # Regular vehicle speed multiplier.
-    vehicle-speed-multiplier: 1.9
+    # Vehicle speed multipliers (horse, boat, strider, pig, etc.).
+    vehicle-speed-multiplier: 1.5
 
-    # Ice vehicle speed multiplier - only applies when vehicles are on ice.
-    # Boats on ice can move especially fast.
+    # Boats on ice can reach much higher speeds; this multiplier is used instead.
+    # Default allows up to ~4.0 b/t (80 b/s) to cover extreme ice-boat runs while
+    # still catching blatant teleport-speed exploits.
     vehicle-ice-speed-multiplier: 4.3
 
-    # Extra buffer multiplier applied to all speed checks.
-    # This provides some leeway to prevent false positives.
-    # Lower values = stricter checks, higher values = more lenient.
-    buffer-multiplier: 1.2
-
   flight:
-    # Whether to run flight checks (hovering/ascending while not gliding/flying)
-    # Disable this if you only want speed limiting and no flight enforcement.
-    enabled: false
+    # Physics-based vertical (Y-axis) flight simulation.
+    # Simulates gravity each tick (vy = (vy - 0.08) * 0.98) and flags players
+    # whose upward displacement exceeds what a legitimate jump trajectory allows.
+    # Catches hover and ascent cheats.
+    # Disable if you only want horizontal speed enforcement.
+    enabled: true
 
-# General settings.
 settings:
-  # Only enable if you are developing or testing the plugin
-  # as this results in verbose logging.
+  # Verbose per-packet logging.  Enable only for testing.
   debug-mode: false
 ```
 
 ## How It Works
-1. The plugin intercepts player movement packets before they're processed.
-2. Each movement is checked against configured speed limits and (optionally) flight rules.
-3. The plugin considers various factors like knockback, potion effects, special movement states, and vehicle types (Happy Ghasts are exempt from flight checks).
-4. Sophisticated pattern detection identifies potential speed cheats that stay just under the defined thresholds.
-5. Invalid movements are rejected, and player movement is temporarily blocked.
-6. Players receive notification when cheating is detected.
-7. After the block duration ends, players can immediately move normally again.
+1. The plugin intercepts `ServerboundMovePlayerPacket` on the Netty thread before the server processes it.
+2. For each packet, it measures the wall-clock gap since the last accepted packet and converts it to ticks (`round(timeDelta / 50 ms)`, capped at `max-lag-ticks`). This is the number of game updates the player could legitimately have experienced.
+3. **Horizontal check**: Minecraft's ground/air movement equations are run for those ticks, applying block friction (normal, ice, blue ice, slime), air drag, sprint/jump boost, water drag, and Speed/Slowness potion modifiers. The resulting total displacement is the horizontal maximum the player could legitimately have moved.
+4. **Vertical check**: The same tick-count is used to simulate the player's Y velocity under gravity (`vy = (vy − 0.08) × 0.98` per tick), predicting the maximum upward displacement from the last known velocity. This catches both hover cheats and upward speed cheats.
+5. Any excess in either axis accumulates in a shared per-player violation buffer that decays on clean packets. Movement is blocked only when the buffer exceeds `violation-threshold`.
 
 ## Commands
 - `/velocityguard reload`: Reloads the plugin configuration (requires the `velocityguard.admin` permission).
@@ -129,9 +103,7 @@ settings:
 
 ## Developer API
 
-Enforce flight checks on individual players from another plugin regardless of the global `config.yml` setting. Designed for use cases like no-fly zones.
-
-**Setup** — add to your `plugin.yml`:
+**Setup** - add to your `plugin.yml`:
 ```yaml
 softdepend: [VelocityGuard]
 ```

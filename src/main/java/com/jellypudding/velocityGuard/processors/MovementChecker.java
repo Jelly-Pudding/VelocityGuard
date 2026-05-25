@@ -1,10 +1,10 @@
 package com.jellypudding.velocityGuard.processors;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
+import com.jellypudding.velocityGuard.managers.ConfigManager;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -12,293 +12,278 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class MovementChecker {
 
     private final VelocityGuard plugin;
 
-    // Track how long players have been in the air
-    private final Map<UUID, Integer> airTicks = new ConcurrentHashMap<>();
+    private final Map<UUID, PlayerMovementState> playerStates = new ConcurrentHashMap<>();
 
-    // Track movement timing
-    private final Map<UUID, Long> lastMoveTime = new ConcurrentHashMap<>();
+    private record FlightEnforcementConfig(
+            boolean groundOnViolation,
+            int     airTickThreshold,
+            boolean groundWhenStationary) {}
 
-    // Track consecutive speed violations
-    private final Map<UUID, Integer> speedViolationsCounter = new ConcurrentHashMap<>();
-
-    // Track recent damage time to account for knockback
-    private final Map<UUID, Long> lastDamageTime = new ConcurrentHashMap<>();
-
-    // Track if last damage was from Ender Dragon
-    private final Map<UUID, Boolean> dragonDamage = new ConcurrentHashMap<>();
-
-    // Track trident riptide usage
-    private final Map<UUID, Long> lastRiptideTime = new ConcurrentHashMap<>();
-
-    // Track Elytra stuff
-    private final Map<UUID, Boolean> wasGliding = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> elytraLandingTime = new ConcurrentHashMap<>();
-
-    // Map to track when players can move again after a violation
-    private final Map<UUID, Long> movementBlockedUntil = new ConcurrentHashMap<>();
-
-    // Track players who need a full data reset on their next movement after being unblocked
-    private final Map<UUID, Boolean> needsReset = new ConcurrentHashMap<>();
-
-    // Track when players were last blocked to ignore old movement packets
-    private final Map<UUID, Long> lastBlockedTime = new ConcurrentHashMap<>();
-
-    private record FlightEnforcementConfig(boolean groundOnViolation, int airTickThreshold, boolean groundWhenStationary) {}
-
-    // Players with per-player flight enforcement enabled via the API.
     private final Map<UUID, FlightEnforcementConfig> flightEnforcedPlayers = new ConcurrentHashMap<>();
-
-    // Lock for operations
-    private final ReentrantLock operationLock = new ReentrantLock();
 
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
         startStationaryGroundCheck();
     }
 
-    private void startStationaryGroundCheck() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (flightEnforcedPlayers.isEmpty()) return;
-                long currentTime = System.currentTimeMillis();
+    public boolean processMovement(Player player, Location from, Location to,
+                                   boolean isVehicle, boolean clientOnGround) {
+        if (player == null || from == null || to == null || player.isDead()) return true;
 
-                for (Map.Entry<UUID, FlightEnforcementConfig> entry : flightEnforcedPlayers.entrySet()) {
-                    if (!entry.getValue().groundWhenStationary()) continue;
+        final UUID id  = player.getUniqueId();
+        final long now = System.currentTimeMillis();
+        final ConfigManager cfg = plugin.getConfigManager();
 
-                    UUID playerId = entry.getKey();
+        PlayerMovementState state = playerStates.computeIfAbsent(
+                id, k -> new PlayerMovementState(to, now));
 
-                    // Skip players already being handled by a recent violation response
-                    Long blockedUntil = movementBlockedUntil.get(playerId);
-                    if (blockedUntil != null && currentTime < blockedUntil) continue;
-
-                    // Skip players who are actively sending movement packets — they are
-                    // jumping/moving and are already covered by the packet-based check.
-                    // This prevents false positives on normal jumps.
-                    Long lastMove = lastMoveTime.get(playerId);
-                    if (lastMove != null && currentTime - lastMove < 1000L) continue;
-
-                    Player player = plugin.getServer().getPlayer(playerId);
-                    if (player == null || !player.isOnline()) continue;
-                    if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) continue;
-                    if (player.isGliding() || player.isFlying()) continue;
-                    if (player.hasPotionEffect(PotionEffectType.LEVITATION)) continue;
-                    if (MovementUtils.isNearGround(player) || MovementUtils.isInLiquid(player)) continue;
-
-                    groundPlayerForViolation(player);
-                }
-            }
-        }.runTaskTimer(plugin, 20L, 10L);
-    }
-
-    // This method only returns true if the player is allowed to move.
-    public boolean processMovement(Player player, Location from, Location to, boolean isVehicle) {
-        if (player == null || from == null || to == null) return true;
-
-        if (player.isDead()) {
+        // Settle window: absorbs round-trip latency after a server teleport
+        // (respawn, /tp, portal).  On expiry the first packet is accepted as a
+        // fresh anchor so the position jump doesn't trigger a false violation.
+        if (now < state.settleUntilMs) return false;
+        if (state.settleUntilMs > 0) {
+            state.settleUntilMs   = 0;
+            state.lastPosition    = to.clone();
+            state.lastPacketMs    = now;
+            state.trackedSpeed    = 0.0;
+            state.trackedVelocityY = 0.0;
+            state.violationBuffer = 0.0;
+            state.wasOnGround     = clientOnGround;
             return true;
         }
 
-        UUID playerId = player.getUniqueId();
-        long currentTime = System.currentTimeMillis();
+        // Block window: all movement packets denied for the configured duration.
+        // On expiry the first packet is accepted as a fresh anchor - no teleport.
+        if (now < state.blockedUntilMs) return false;
+        if (state.blockedUntilMs > 0) {
+            state.blockedUntilMs  = 0;
+            state.lastPosition    = to.clone();
+            state.lastPacketMs    = now;
+            state.trackedSpeed    = 0.0;
+            state.trackedVelocityY = 0.0;
+            state.violationBuffer = 0.0;
+            state.wasOnGround     = clientOnGround;
+            return true;
+        }
 
-        // Check if player is currently blocked from moving
-        Long blockedUntil = movementBlockedUntil.get(playerId);
+        GameMode gm = player.getGameMode();
+        if (gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR) {
+            state.wasInCreative   = true;
+            state.lastPosition    = to.clone();
+            state.lastPacketMs    = now;
+            state.trackedSpeed    = 0.0;
+            state.trackedVelocityY = 0.0;
+            state.wasOnGround     = true;
+            state.airTicks        = 0;
+            return true;
+        }
 
-        if (blockedUntil != null && currentTime < blockedUntil) {
-            if (plugin.isDebugEnabled()) {
-                long remainingTime = (blockedUntil - currentTime) / 1000;
-                if (remainingTime % 5 == 0) {
-                    plugin.getLogger().info("Blocked movement for " + player.getName() + " - remaining: " + remainingTime + "s");
+        // First survival packet after leaving creative/spectator: reset and accept without
+        // checking to avoid false positives from the position/speed discontinuity.
+        if (state.wasInCreative) {
+            state.wasInCreative = false;
+            state.reset(to, now);
+            return true;
+        }
+
+        boolean currentlyGliding = player.isGliding();
+        if (!currentlyGliding && state.wasGliding) {
+            state.elytraLandingMs = now;
+        }
+        state.wasGliding = currentlyGliding;
+
+        double dx = to.getX() - state.lastPosition.getX();
+        double dz = to.getZ() - state.lastPosition.getZ();
+        double dy = to.getY() - state.lastPosition.getY();
+        double packetDistance = Math.sqrt(dx * dx + dz * dz);
+        // Use the client's own onGround flag for players: it is set to false the instant
+        // the client jumps, one packet before isNearGroundAt(to) catches up.
+        // For vehicles there is no onGround in the packet, so fall back to server-side.
+        boolean nowOnGround = isVehicle ? PhysicsEngine.isNearGroundAt(to) : clientOnGround;
+
+        // Time since the last accepted packet.
+        long timeDeltaMs = now - state.lastPacketMs;
+
+        int expectedTicks = (int) Math.max(1,
+                Math.min(Math.round((double) timeDeltaMs / 50.0), cfg.getMaxLagTicks()));
+
+        boolean speedViolation = false;
+
+        if (!checkSpecialSpeedExemption(player, state, now, cfg)) {
+            double maxAllowed = computeMaxAllowedDisplacementVehicle(
+                    player, state, expectedTicks, cfg, isVehicle, to, nowOnGround);
+
+            if (packetDistance > 0.001 && packetDistance > maxAllowed) {
+                double excess = packetDistance - maxAllowed;
+                state.violationBuffer += excess;
+
+                if (plugin.isDebugEnabled()) {
+                    plugin.getLogger().info(String.format(
+                            "[VG] %s  actual=%.3f  max=%.3f  ticks=%d  trackedSpeed=%.3f  buf=%.3f%s",
+                            player.getName(), packetDistance, maxAllowed, expectedTicks,
+                            state.trackedSpeed, state.violationBuffer,
+                            isVehicle ? " (vehicle)" : ""));
+                }
+
+                if (state.violationBuffer >= cfg.getViolationThreshold()) {
+                    speedViolation = true;
+                }
+            } else {
+                state.violationBuffer = Math.max(0.0,
+                        state.violationBuffer - cfg.getViolationDecay());
+            }
+        } else {
+            state.violationBuffer = Math.max(0.0,
+                    state.violationBuffer - cfg.getViolationDecay());
+        }
+
+        boolean serverSideAirborne = !PhysicsEngine.isNearGroundAt(to);
+
+        // Detect a normal jump (wasOnGround=true, now airborne, moving up).
+        boolean normalJump = !isVehicle && state.wasOnGround && !nowOnGround && dy > 0.3;
+
+        // Detect a jump after a brief clientOnGround flicker (wasOnGround=false due to
+        // terrain, but the player just actually jumped). We confirm by checking that the
+        // previous position was still near the ground (so this can't fire mid-flight).
+        boolean jumpLaunched = !isVehicle && !state.wasOnGround && !nowOnGround
+                && serverSideAirborne && dy > 0.3 && state.trackedVelocityY <= 0.1
+                && PhysicsEngine.isNearGroundAt(state.lastPosition);
+
+        // Pre-compute the effective starting Y velocity for this tick's simulation.
+        // For any detected jump (normal or flicker-launched) this is the first post-jump
+        // velocity so the Y check uses the correct prediction instead of stale/zero state.
+        double gravityPreJump = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)
+                ? 0.01 : PhysicsEngine.GRAVITY;
+        double effectiveVelocityY = state.trackedVelocityY;
+        if (normalJump || jumpLaunched) {
+            effectiveVelocityY = (PhysicsEngine.getJumpVelocity(player) - gravityPreJump)
+                    * PhysicsEngine.VERTICAL_DRAG;
+        }
+
+        if (cfg.isFlightCheckEnabled() && !isVehicle && !speedViolation && !state.wasOnGround
+                && serverSideAirborne
+                && !checkSpecialSpeedExemption(player, state, now, cfg)) {
+
+            boolean yExempt = currentlyGliding
+                    || MovementUtils.isInLiquid(player)
+                    || player.isFlying()
+                    || player.hasPotionEffect(PotionEffectType.LEVITATION);
+
+            if (!yExempt) {
+                double gravityVal = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)
+                        ? 0.01 : PhysicsEngine.GRAVITY;
+                double maxDy = 0.0;
+                double vy    = effectiveVelocityY;
+                for (int t = 0; t < expectedTicks; t++) {
+                    maxDy += vy;
+                    vy = (vy - gravityVal) * PhysicsEngine.VERTICAL_DRAG;
+                }
+                double yTolerance = cfg.getPerTickTolerance() * 1.5 * expectedTicks;
+                double yThreshold = maxDy * cfg.getLeniencyMultiplier() + yTolerance;
+                // Only flag upward or hovering violations (dy >= 0). When the player is
+                // descending (dy < 0), a landing mid-arc would look like excess without
+                // actually being a cheat, producing false positives.
+                if (dy >= 0 && dy > yThreshold) {
+                    double excess = dy - yThreshold;
+                    state.violationBuffer += excess;
+                    if (plugin.isDebugEnabled()) {
+                        plugin.getLogger().info(String.format(
+                                "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  ticks=%d  buf=%.3f",
+                                player.getName(), dy, maxDy, effectiveVelocityY,
+                                expectedTicks, state.violationBuffer));
+                    }
+                    if (state.violationBuffer >= cfg.getViolationThreshold()) {
+                        speedViolation = true;
+                    }
                 }
             }
+        }
+
+        if (!speedViolation) {
+            double actualPerTick = packetDistance / expectedTicks;
+
+            if (isVehicle) {
+                state.trackedSpeed = Math.min(actualPerTick, PhysicsEngine.MAX_VEHICLE_SPEED);
+            } else {
+                // isJumpTick covers both normal jumps and the brief-flicker jump case so that
+                // trackedSpeed is correctly seeded with sprint-jump speed for subsequent ticks.
+                boolean isJumpTick = (state.wasOnGround || jumpLaunched) && !nowOnGround;
+                double maxPerTick = currentlyGliding
+                        ? 4.0
+                        : PhysicsEngine.simulateOneTick(
+                                state.trackedSpeed,
+                                PhysicsEngine.isNearGroundAt(state.lastPosition) && !isJumpTick,
+                                MovementUtils.isInLiquid(player),
+                                player.isSprinting(),
+                                PhysicsEngine.getPotionSpeedModifier(player),
+                                PhysicsEngine.getBlockSlipperiness(state.lastPosition),
+                                isJumpTick);
+                state.trackedSpeed = Math.min(actualPerTick, maxPerTick);
+            }
+
+            if (normalJump || jumpLaunched) {
+                // effectiveVelocityY was already pre-computed to the correct first post-jump
+                // velocity, covering both the normal-jump and the flicker-launched cases.
+                state.trackedVelocityY = effectiveVelocityY;
+            } else if (!isVehicle && !nowOnGround && serverSideAirborne) {
+                double gravityVal = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)
+                        ? 0.01 : PhysicsEngine.GRAVITY;
+                double vy = state.trackedVelocityY;
+                for (int t = 0; t < expectedTicks; t++) {
+                    vy = (vy - gravityVal) * PhysicsEngine.VERTICAL_DRAG;
+                }
+                state.trackedVelocityY = vy;
+            } else {
+                state.trackedVelocityY = 0.0;
+            }
+
+            state.wasOnGround  = nowOnGround;
+            state.lastPosition = to.clone();
+            state.lastPacketMs = now;
+        }
+
+        FlightEnforcementConfig flightCfg = flightEnforcedPlayers.get(id);
+        int flightThreshold = flightCfg != null ? flightCfg.airTickThreshold() : 40;
+        boolean flyingViolation = false;
+
+        if (!speedViolation && flightCfg != null) {
+            boolean ridingGhast    = MovementUtils.isRidingGhast(player);
+            boolean justUsedRiptide = state.lastRiptideMs > 0
+                    && (now - state.lastRiptideMs < 1_500);
+
+            if (!justUsedRiptide && !ridingGhast) {
+                MovementUtils.FlightResult fr = MovementUtils.checkFlying(
+                        player, from, to, state.airTicks,
+                        plugin.isDebugEnabled(), plugin.getLogger(), flightThreshold);
+                state.airTicks    = fr.newAirTicks();
+                flyingViolation   = fr.violation();
+            } else if (plugin.isDebugEnabled() && state.airTicks > 30) {
+                plugin.getLogger().info(player.getName()
+                        + " exempt from flight check: "
+                        + (ridingGhast ? "riding ghast" : "recent riptide"));
+            }
+        }
+
+        if (speedViolation) {
+            state.violationBuffer = 0.0;
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info("[VG] " + player.getName()
+                        + " flagged for speed (buffer exceeded threshold).");
+            }
+            blockPlayerMovement(player, "Excessive speed detected");
             return false;
         }
 
-        if (blockedUntil != null && currentTime >= blockedUntil) {
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Player " + player.getName() + " is now unblocked - will reset on next movement");
-            }
-            movementBlockedUntil.remove(playerId);
-            needsReset.put(playerId, true);
-            return true;
-        }
-
-        // Check if this movement packet is from before the player was blocked (ignore old packets).
-        Long lastBlocked = lastBlockedTime.get(playerId);
-        if (lastBlocked != null) {
-            // Estimate when this movement packet was created (account for processing time and network delay).
-            // Subtract ping to estimate when packet was sent.
-            long estimatedPacketTime = currentTime;
-
-            // Estimate based on their ping.
-            int ping = player.getPing();
-            estimatedPacketTime -= Math.max(ping, 50);
-
-            // If this packet originated before the block, ignore it.
-            if (estimatedPacketTime < lastBlocked) {
-                return false; // Block this old packet but don't punish for it.
-            }
-        }
-
-        if (needsReset.remove(playerId) != null) {
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info("Resetting movement data for " + player.getName() + " after unblock");
-            }
-            airTicks.remove(playerId);
-            lastMoveTime.remove(playerId);
-            lastBlockedTime.remove(playerId);
-            return true;
-        }
-
-        // Skip processing identical locations.
-        if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
-            return true;
-        }
-
-        // Skip for creative/spectator mode players.
-        if (player.getGameMode().toString().contains("CREATIVE") ||
-            player.getGameMode().toString().contains("SPECTATOR")) {
-            airTicks.remove(playerId);
-            return true;
-        }
-
-        // Calculate blocks per second.
-        long rawTimeDelta = currentTime - lastMoveTime.getOrDefault(playerId, currentTime - 50);
-        lastMoveTime.put(playerId, currentTime);
-
-        boolean lagSpikeRecovery = rawTimeDelta > 400;
-        if (lagSpikeRecovery) {
-            speedViolationsCounter.put(playerId, 0);
-            if (plugin.isDebugEnabled()) {
-                plugin.getLogger().info(player.getName() + " lag spike (" + rawTimeDelta + "ms gap) - skipping speed check");
-            }
-        }
-
-        // Prevent division by zero and unreasonable values.
-        long timeDelta = Math.max(25, Math.min(rawTimeDelta, 200));
-        double horizontalDistance = MovementUtils.calculateHorizontalDistance(from, to);
-        // Blocks per second.
-        double horizontalSpeed = (horizontalDistance / timeDelta) * 1000;
-
-        // Track elytra and dragon damage
-        // which will be used to calculate the maximum allowed speed.
-        boolean isCurrentlyGliding = player.isGliding();
-        boolean wasGlidingPreviously = wasGliding.getOrDefault(playerId, false);
-        wasGliding.put(playerId, isCurrentlyGliding);
-        if (!isCurrentlyGliding && wasGlidingPreviously) {
-            elytraLandingTime.put(playerId, currentTime);
-        }
-        boolean isRecentDragonDamage = dragonDamage.getOrDefault(playerId, false);
-
-        int ping = MovementUtils.getPlayerPing(player);
-        // Get max allowed speed with adjustments for game conditions.
-        double maxSpeed = MovementUtils.getMaxHorizontalSpeed(
-            player,
-            plugin.getConfigManager().getMaxHorizontalSpeed(),
-            elytraLandingTime.get(playerId),
-            lastDamageTime.get(playerId),
-            lastRiptideTime.get(playerId),
-            currentTime,
-            plugin.getConfigManager().getKnockbackMultiplier(),
-            plugin.getConfigManager().getKnockbackDuration(),
-            plugin.getConfigManager().getRiptideMultiplier(),
-            plugin.getConfigManager().getRiptideDuration(),
-            isRecentDragonDamage,
-            isVehicle,
-            plugin.getConfigManager().getVehicleSpeedMultiplier(),
-            plugin.getConfigManager().getVehicleIceSpeedMultiplier(),
-            plugin.getConfigManager().getBufferMultiplier(),
-            ping,
-            plugin.getConfigManager().isLatencyCompensationEnabled(),
-            plugin.getConfigManager().getLowPingCompensation(),
-            plugin.getConfigManager().getMediumPingCompensation(),
-            plugin.getConfigManager().getHighPingCompensation(),
-            plugin.getConfigManager().getVeryHighPingCompensation(),
-            plugin.getConfigManager().getExtremePingCompensation(),
-            plugin.getConfigManager().getVeryLowPingCompensation(),
-            plugin.getConfigManager().getUltraPingCompensation(),
-            plugin.getConfigManager().getInsanePingCompensation(),
-            plugin.getConfigManager().getElytraGlidingMultiplier(),
-            plugin.getConfigManager().getElytraLandingDuration()
-        );
-
-        // Check for speed violations
-        boolean speedViolation = false;
-
-        Long recentDamage = lastDamageTime.get(playerId);
-        Long recentRiptide = lastRiptideTime.get(playerId);
-        boolean justTookDamage = recentDamage != null && (currentTime - recentDamage < 150);
-        boolean justUsedRiptide = recentRiptide != null && (currentTime - recentRiptide < 1500);
-
-        if (!lagSpikeRecovery && horizontalSpeed > maxSpeed) {
-            // Check if the player just took damage or used riptide in the past 150ms.
-            // This helps prevent race conditions between events and movement processing.
-            if (!justTookDamage && !justUsedRiptide) {
-                int burstTolerance = plugin.getConfigManager().getBurstToleranceForPing(ping);
-
-                int violations = speedViolationsCounter.getOrDefault(playerId, 0) + 1;
-                speedViolationsCounter.put(playerId, violations);
-
-                if (violations > burstTolerance) {
-                    speedViolation = true;
-
-                    if (plugin.isDebugEnabled()) {
-                        String vehicleInfo = isVehicle ? " (in vehicle)" : "";
-                        plugin.getLogger().info(player.getName() + " speed violation" + vehicleInfo + ": " +
-                                String.format("%.2f", horizontalSpeed) + " blocks/s (max allowed: " +
-                                String.format("%.2f", maxSpeed) + "), ping: " + ping + "ms, violations: " + violations + "/" + burstTolerance);
-                    }
-                } else if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info(player.getName() + " exceeded speed but within burst tolerance (" +
-                            violations + "/" + burstTolerance + "): " + String.format("%.2f", horizontalSpeed) +
-                            " blocks/s (max allowed: " + String.format("%.2f", maxSpeed) + ")");
-                }
-            } else if (plugin.isDebugEnabled()) {
-                String reason = justTookDamage ? "recently damaged" : "recently used riptide";
-                plugin.getLogger().info(player.getName() + " exceeded speed limit but was " + reason + " - ignoring.");
-                speedViolationsCounter.put(playerId, 0);
-            }
-        } else {
-            speedViolationsCounter.put(playerId, 0);
-        }
-
-        // Only check for flying if there's no speed violation yet, and either the global
-        // flight check is enabled or this player has per-player enforcement active.
-        FlightEnforcementConfig enforcementConfig = flightEnforcedPlayers.get(playerId);
-        int flightThreshold = enforcementConfig != null ? enforcementConfig.airTickThreshold() : 40;
-
-        boolean flyingViolation = false;
-        if (!speedViolation && (plugin.getConfigManager().isFlightCheckEnabled() || enforcementConfig != null)) {
-            // Skip flying check if player just used riptide or is riding a ghast
-            boolean isRidingGhast = MovementUtils.isRidingGhast(player);
-            if (!justUsedRiptide && !isRidingGhast) {
-                flyingViolation = MovementUtils.checkFlying(player, from, to, airTicks,
-                                                          plugin.isDebugEnabled(), plugin.getLogger(),
-                                                          flightThreshold);
-            } else if (plugin.isDebugEnabled() && airTicks.getOrDefault(playerId, 0) > 30) {
-                String reason = justUsedRiptide ? "recent riptide use" : "riding ghast";
-                if (isRidingGhast && player.getVehicle() != null) {
-                    String entityType = player.getVehicle().getType().toString();
-                    reason = "riding " + entityType.toLowerCase();
-                }
-                plugin.getLogger().info(player.getName() + " exempt from flight checks due to " + reason);
-            }
-        }
-
-        // If a violation was detected, immediately block all movement or ground the player
-        if (speedViolation || (flyingViolation && airTicks.getOrDefault(playerId, 0) >= flightThreshold)) {
-            if (!speedViolation && enforcementConfig != null && enforcementConfig.groundOnViolation()) {
+        if (flyingViolation && state.airTicks >= flightThreshold) {
+            if (flightCfg != null && flightCfg.groundOnViolation()) {
                 groundPlayerForViolation(player);
             } else {
-                String message = speedViolation ? "Excessive speed detected" : "Illegal flight detected";
-                blockPlayerMovement(player, message);
+                blockPlayerMovement(player, "Illegal flight detected");
             }
             return false;
         }
@@ -306,149 +291,249 @@ public class MovementChecker {
         return true;
     }
 
-    private void groundPlayerForViolation(Player player) {
-        UUID playerId = player.getUniqueId();
-        long currentTime = System.currentTimeMillis();
+    private double computeMaxAllowedDisplacement(Player player, PlayerMovementState state,
+                                                 int ticks, Location to, ConfigManager cfg,
+                                                 boolean toOnGround) {
+        long now = System.currentTimeMillis();
 
-        operationLock.lock();
-        try {
-            movementBlockedUntil.put(playerId, currentTime + 1000L);
-            lastBlockedTime.put(playerId, currentTime);
-        } finally {
-            operationLock.unlock();
+        if (player.isGliding()) {
+            return 4.0 * ticks * cfg.getLeniencyMultiplier()
+                    + cfg.getPerTickTolerance() * ticks;
         }
 
-        airTicks.remove(playerId);
+        if (state.elytraLandingMs > 0
+                && now - state.elytraLandingMs < cfg.getElytraLandingDuration()) {
+            return state.trackedSpeed * ticks * 3.5 * cfg.getLeniencyMultiplier()
+                    + cfg.getPerTickTolerance() * ticks;
+        }
+
+        if (state.lastDamageMs > 0) {
+            long elapsed = now - state.lastDamageMs;
+            if (state.lastDragonDamage && elapsed < 5_000) {
+                return 500.0 * ticks;
+            }
+            if (elapsed < cfg.getKnockbackDuration()) {
+                double kbFactor = cfg.getKnockbackMultiplier()
+                        * (1.0 - (double) elapsed / cfg.getKnockbackDuration());
+                double kbTracked = state.trackedSpeed * (1.0 + kbFactor);
+                return computeSimulatedMax(player, state, kbTracked, ticks, to, cfg, toOnGround);
+            }
+        }
+
+        if (state.lastRiptideMs > 0) {
+            long elapsed = now - state.lastRiptideMs;
+            if (elapsed < cfg.getRiptideDuration()) {
+                double rtFactor = cfg.getRiptideMultiplier()
+                        * (1.0 - (double) elapsed / cfg.getRiptideDuration());
+                double rtTracked = state.trackedSpeed * (1.0 + rtFactor);
+                return computeSimulatedMax(player, state, rtTracked, ticks, to, cfg, toOnGround);
+            }
+        }
+
+        return computeSimulatedMax(player, state, state.trackedSpeed, ticks, to, cfg, toOnGround);
+    }
+
+    private double computeSimulatedMax(Player player, PlayerMovementState state,
+                                       double startSpeed, int ticks, Location to,
+                                       ConfigManager cfg, boolean toOnGround) {
+        boolean onGround  = state.wasOnGround;
+        boolean inLiquid  = MovementUtils.isInLiquid(player);
+        boolean sprinting = player.isSprinting();
+        double  speedMod  = PhysicsEngine.getPotionSpeedModifier(player);
+        float   slip      = PhysicsEngine.getBlockSlipperiness(state.lastPosition);
+
+        // couldJump is true when the player was on the ground last tick but the client
+        // reports it is now airborne.  Using the client flag avoids the one-packet lag
+        // that isNearGroundAt(to) has (player rises ~0.42 b but the check still sees
+        // the ground block 0.5 b below).
+        // We also allow couldJump when wasOnGround was briefly false due to a clientOnGround
+        // flicker on terrain: if the previous position was still near the ground and the
+        // client now reports airborne, the player almost certainly just jumped from there.
+        boolean couldJump = !toOnGround
+                && (onGround || PhysicsEngine.isNearGroundAt(state.lastPosition));
+
+        double totalMax  = 0.0;
+        double speed     = startSpeed;
+        boolean grounded = onGround;
+
+        for (int t = 0; t < ticks; t++) {
+            boolean jumpTick = (t == 0) && couldJump;
+            if (jumpTick) grounded = false;   // airborne from this tick onward
+            speed    = PhysicsEngine.simulateOneTick(speed, grounded && !jumpTick, inLiquid,
+                                                     sprinting, speedMod, slip, jumpTick);
+            totalMax += speed;
+        }
+
+        return totalMax * cfg.getLeniencyMultiplier()
+                + cfg.getPerTickTolerance() * ticks;
+    }
+
+    private double computeMaxAllowedDisplacementVehicle(Player player, PlayerMovementState state,
+                                                        int ticks, ConfigManager cfg,
+                                                        boolean isVehicle, Location to,
+                                                        boolean toOnGround) {
+        if (!isVehicle) {
+            return computeMaxAllowedDisplacement(player, state, ticks, to, cfg, toOnGround);
+        }
+
+        long now = System.currentTimeMillis();
+        if (state.lastDamageMs > 0 && state.lastDragonDamage
+                && now - state.lastDamageMs < 5_000) {
+            return 500.0 * ticks;
+        }
+
+        double vMult = MovementUtils.isOnIce(player)
+                ? cfg.getVehicleIceSpeedMultiplier()
+                : cfg.getVehicleSpeedMultiplier();
+        return PhysicsEngine.MAX_VEHICLE_SPEED * vMult * ticks * cfg.getLeniencyMultiplier()
+                + cfg.getPerTickTolerance() * ticks;
+    }
+
+    private boolean checkSpecialSpeedExemption(Player player, PlayerMovementState state,
+                                               long now, ConfigManager cfg) {
+        if (state.lastDamageMs > 0 && now - state.lastDamageMs < 150) return true;
+        if (state.lastRiptideMs > 0 && now - state.lastRiptideMs < 500) return true;
+        return false;
+    }
+
+    private void blockPlayerMovement(Player player, String reason) {
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state == null) return;
+
+        int secs = plugin.getConfigManager().getCancelDuration();
+        state.blockedUntilMs = System.currentTimeMillis() + secs * 1_000L;
 
         new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    if (player.isOnline()) {
-                        Location loc = player.getLocation();
-                        World world = loc.getWorld();
-                        if (world != null) {
-                            int highestY = world.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
-                            Location ground = new Location(world, loc.getX(), highestY + 1, loc.getZ(),
-                                    loc.getYaw(), loc.getPitch());
-                            player.teleport(ground);
-                        }
-                        if (plugin.isDebugEnabled()) {
-                            plugin.getLogger().info("Grounded " + player.getName() + " after flight violation.");
-                        }
-                    }
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Error grounding player " + player.getName() + ": " + e.getMessage());
+            @Override public void run() {
+                if (!player.isOnline()) return;
+                String unit = secs == 1 ? "second" : "seconds";
+                player.sendMessage("§c[VelocityGuard] §f" + reason
+                        + ". Movement blocked for " + secs + " " + unit + ".");
+                if (plugin.isDebugEnabled()) {
+                    plugin.getLogger().info("[VG] Blocked " + player.getName()
+                            + " for " + secs + "s - " + reason);
                 }
             }
         }.runTask(plugin);
     }
 
-    private void blockPlayerMovement(Player player, String reason) {
-        UUID playerId = player.getUniqueId();
+    private void groundPlayerForViolation(Player player) {
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state == null) return;
+        state.blockedUntilMs = System.currentTimeMillis() + 1_000L;
+        state.airTicks = 0;
 
-        int blockDuration = plugin.getConfigManager().getCancelDuration();
-
-        long currentTime = System.currentTimeMillis();
-        long blockedUntil = currentTime + (blockDuration * 1000L);
-
-        // Use lock to ensure thread safety
-        operationLock.lock();
-        try {
-            movementBlockedUntil.put(playerId, blockedUntil);
-            // Record when this player was blocked to ignore old packets.
-            lastBlockedTime.put(playerId, currentTime);
-        } finally {
-            operationLock.unlock();
+        if (plugin.isDebugEnabled()) {
+            new BukkitRunnable() {
+                @Override public void run() {
+                    if (!player.isOnline()) return;
+                    plugin.getLogger().info("[VG] Grounded " + player.getName()
+                            + " after flight violation.");
+                }
+            }.runTask(plugin);
         }
+    }
 
+    private void startStationaryGroundCheck() {
         new BukkitRunnable() {
-            @Override
-            public void run() {
-                try {
-                    if (player.isOnline()) {
-                        String unit = (blockDuration == 1) ? "second" : "seconds";
-                        player.sendMessage("§c[VelocityGuard] §f" + reason + ". Movement blocked for " + blockDuration + " " + unit + ".");
+            @Override public void run() {
+                if (flightEnforcedPlayers.isEmpty()) return;
+                long now = System.currentTimeMillis();
 
-                        if (plugin.isDebugEnabled()) {
-                            plugin.getLogger().info("Blocked all movement for " + player.getName() +
-                                    " for " + blockDuration + " " + unit + ". Reason: " + reason);
-                        }
-                    }
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Error notifying player " + player.getName() + ": " + e.getMessage());
+                for (Map.Entry<UUID, FlightEnforcementConfig> entry
+                        : flightEnforcedPlayers.entrySet()) {
+                    if (!entry.getValue().groundWhenStationary()) continue;
+
+                    UUID id    = entry.getKey();
+                    PlayerMovementState state = playerStates.get(id);
+
+                    if (state != null && now < state.blockedUntilMs) continue;
+                    if (state != null && now - state.lastPacketMs < 1_000L) continue;
+
+                    Player player = plugin.getServer().getPlayer(id);
+                    if (player == null || !player.isOnline()) continue;
+                    if (player.getGameMode() == GameMode.CREATIVE
+                            || player.getGameMode() == GameMode.SPECTATOR) continue;
+                    if (player.isGliding() || player.isFlying()) continue;
+                    if (player.hasPotionEffect(PotionEffectType.LEVITATION)) continue;
+                    if (MovementUtils.isNearGround(player)
+                            || MovementUtils.isInLiquid(player)) continue;
+
+                    groundPlayerForViolation(player);
                 }
             }
-        }.runTask(plugin);
+        }.runTaskTimer(plugin, 20L, 10L);
+    }
+
+    public void registerPlayer(Player player) {
+        if (player == null) return;
+        UUID id = player.getUniqueId();
+
+        PlayerMovementState state = playerStates.get(id);
+        if (state != null) {
+            state.blockedUntilMs = 0;
+            state.settleUntilMs  = 0;
+            state.lastDamageMs   = 0;
+            state.lastRiptideMs  = 0;
+            state.violationBuffer = 0.0;
+            state.trackedSpeed   = 0.0;
+        }
+    }
+
+    public void unregisterPlayer(UUID id) {
+        if (id == null) return;
+        playerStates.remove(id);
+        flightEnforcedPlayers.remove(id);
     }
 
     public void recordPlayerDamage(Player player, boolean isDragonDamage) {
         if (player == null) return;
-        UUID playerId = player.getUniqueId();
-        lastDamageTime.put(playerId, System.currentTimeMillis());
-        dragonDamage.put(playerId, isDragonDamage);
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state == null) return;
+        state.lastDamageMs    = System.currentTimeMillis();
+        state.lastDragonDamage = isDragonDamage;
 
         if (plugin.isDebugEnabled()) {
-            plugin.getLogger().info(player.getName() + " took damage" +
-                    (isDragonDamage ? " from dragon" : "") +
-                    " - adjusting speed threshold for knockback");
+            plugin.getLogger().info(player.getName() + " took damage"
+                    + (isDragonDamage ? " (dragon)" : "")
+                    + " - knockback allowance applied.");
         }
     }
 
     public void recordRiptideUse(Player player) {
         if (player == null) return;
-        UUID playerId = player.getUniqueId();
-        lastRiptideTime.put(playerId, System.currentTimeMillis());
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state == null) return;
+        state.lastRiptideMs = System.currentTimeMillis();
 
         if (plugin.isDebugEnabled()) {
-            plugin.getLogger().info(player.getName() + " used trident with riptide enchantment" +
-                    " - adjusting speed threshold");
+            plugin.getLogger().info(player.getName()
+                    + " used riptide - riptide speed allowance applied.");
         }
     }
 
-    public void registerPlayer(Player player) {
-        if (player == null) return;
-        UUID playerId = player.getUniqueId();
-
-        // Reset tracking variables.
-        airTicks.put(playerId, 0);
-        wasGliding.put(playerId, player.isGliding());
-        lastDamageTime.remove(playerId);
-        lastRiptideTime.remove(playerId);
-        speedViolationsCounter.put(playerId, 0);
-
-        // Let them move again (in case they were previously blocked).
-        movementBlockedUntil.remove(playerId);
+    public void addFlightEnforcement(UUID id, boolean groundOnViolation,
+                                     int airTickThreshold, boolean groundWhenStationary) {
+        if (id == null) return;
+        flightEnforcedPlayers.put(id,
+                new FlightEnforcementConfig(groundOnViolation, airTickThreshold, groundWhenStationary));
     }
 
-    public void unregisterPlayer(UUID playerId) {
-        if (playerId == null) return;
-
-        airTicks.remove(playerId);
-        lastMoveTime.remove(playerId);
-        wasGliding.remove(playerId);
-        elytraLandingTime.remove(playerId);
-        movementBlockedUntil.remove(playerId);
-        needsReset.remove(playerId);
-        lastDamageTime.remove(playerId);
-        dragonDamage.remove(playerId);
-        lastRiptideTime.remove(playerId);
-        speedViolationsCounter.remove(playerId);
-        lastBlockedTime.remove(playerId);
-        flightEnforcedPlayers.remove(playerId);
+    public void removeFlightEnforcement(UUID id) {
+        if (id == null) return;
+        flightEnforcedPlayers.remove(id);
     }
 
-    public void addFlightEnforcement(UUID playerId, boolean groundOnViolation, int airTickThreshold, boolean groundWhenStationary) {
-        if (playerId == null) return;
-        flightEnforcedPlayers.put(playerId, new FlightEnforcementConfig(groundOnViolation, airTickThreshold, groundWhenStationary));
+    public boolean isFlightEnforced(UUID id) {
+        return id != null && flightEnforcedPlayers.containsKey(id);
     }
 
-    public void removeFlightEnforcement(UUID playerId) {
-        if (playerId == null) return;
-        flightEnforcedPlayers.remove(playerId);
-    }
-
-    public boolean isFlightEnforced(UUID playerId) {
-        return playerId != null && flightEnforcedPlayers.containsKey(playerId);
+    public void resetPlayerState(Player player, Location location) {
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state != null && location != null) {
+            long now = System.currentTimeMillis();
+            state.reset(location, now);
+            state.settleUntilMs = now + 500L;
+        }
     }
 }
