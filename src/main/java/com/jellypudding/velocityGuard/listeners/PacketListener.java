@@ -19,6 +19,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
+import net.minecraft.network.protocol.common.ServerboundPongPacket;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
@@ -146,8 +147,14 @@ public class PacketListener implements Listener {
                 @Override
                 public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                     try {
+                        if (msg instanceof ServerboundPongPacket pong) {
+                            if (plugin.getMovementChecker().handlePong(
+                                    player.getUniqueId(), pong.getId(), System.nanoTime())) {
+                                return;
+                            }
+                        }
                         // Handle regular player movement.
-                        if (msg instanceof ServerboundMovePlayerPacket movePacket) {
+                        else if (msg instanceof ServerboundMovePlayerPacket movePacket) {
                             // Only process if position has changed.
                             if (movePacket.hasPos) {
                                 double x = movePacket.x;
@@ -252,9 +259,6 @@ public class PacketListener implements Listener {
         }
     }
 
-    // Reset movement state whenever the player is teleported (portals, /tp, etc.)
-    // so the first post-teleport packet isn't flagged as excessive movement.
-    // MONITOR priority + ignoreCancelled ensures we only act on successful teleports.
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         Location to = event.getTo();

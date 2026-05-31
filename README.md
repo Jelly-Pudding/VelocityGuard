@@ -1,11 +1,13 @@
 # VelocityGuard Plugin
-**VelocityGuard** is a Minecraft Paper 26.1.2 anti-cheat plugin that prevents flight and speed cheats. Although it was custom built for [minecraftoffline.net](https://www.minecraftoffline.net), any server can use it. The plugin intercepts movement packets and runs a server-side physics simulation to predict the maximum displacement a player could legitimately produce each tick. A developer API is also provided for other plugins to enforce flight checks on specific players on demand (e.g. within a no-fly zone).
+**VelocityGuard** is a Minecraft Paper 26.1.2 anti-cheat plugin that prevents flight and speed cheats. Although it was custom built for [minecraftoffline.net](https://www.minecraftoffline.net), any server can use it. The plugin intercepts movement packets and runs a server-side physics simulation to predict the maximum displacement a player could legitimately produce each tick. It treats every movement packet as exactly one game tick and polices the rate of those packets against a server-anchored clock which means detection is consistent regardless of a player's ping and is immune to "timer" cheats that speed up the client's game loop. A developer API is also provided for other plugins to enforce flight checks on specific players on demand (e.g. within a no-fly zone).
 
 ## Features
 - **Full 3D Physics Simulation**: Speed and flight checks are based on Minecraft's actual movement equations for both horizontal and vertical axes.
+- **Ping-Independent Timer Check**: Each movement packet represents one game tick (50 ms). VelocityGuard accumulates that claimed time and compares it against real time anchored to a server clock the client cannot speed up.
+- **Transaction-Based Timing**: A ping/pong (transaction) packet is sent to each player every tick; the forced echo gives a server-anchored clock used to keep timing honest under network jitter.
 - **Direct Detection**: Detects cheating at the packet level on the Netty thread before the server processes the move.
 - **Violation Buffer**: Excess displacement accumulates in a buffer that decays on clean packets so a single lag spike should not trigger a false positive.
-- **Movement Blocking**: Temporarily blocks movement when a violation is confirmed.
+- **Setback Enforcement**: On a confirmed violation the player is rubber-banded to their last valid position.
 - **Adaptive Exemptions**: Handles knockback, riptide, elytra landing, potions, boats, horses, swimming, levitation, and happy ghasts automatically.
 - **Leniency Multiplier**: A single top-level knob to loosen all checks at once without touching individual parameters.
 - **Toggleable Flight Check**: Physics-based Y simulation catches hover and ascent cheats.
@@ -31,12 +33,9 @@ checks:
   # Raise to allow more movement before a flag fires; lower toward 1.0 for
   # stricter enforcement. Must be >= 1.0.
   # For example 1.10 = 10% headroom above the raw physics prediction.
-  leniency-multiplier: 1.0
+  leniency-multiplier: 1.10
 
   speed:
-    # Maximum client ticks to credit for a single delayed packet.
-    max-lag-ticks: 20
-
     # Extra displacement slack (blocks) added per expected tick.
     # Absorbs sub-block floating-point variance between client and server.
     per-tick-tolerance: 0.08
@@ -48,9 +47,6 @@ checks:
 
     # Blocks subtracted from the violation buffer per clean (normal) packet.
     violation-decay: 0.15
-
-    # Seconds to block all movement after a confirmed violation.
-    cancel-duration: 1
 
     # Knockback from being hit: the large initial velocity is modelled by
     # scaling the tracked speed; this controls how long and how strongly.
@@ -75,6 +71,18 @@ checks:
     # still catching blatant teleport-speed exploits.
     vehicle-ice-speed-multiplier: 4.3
 
+  timer:
+    # Each movement packet a client sends represents one game tick (50ms).
+    # VelocityGuard accumulates that claimed time and compares it against real
+    # time anchored to a server clock (transactions) the client cannot speed up.
+    enabled: true
+
+    # Network-jitter tolerance in milliseconds.
+    drift-millis: 120
+
+    # Consecutive too-fast packets before a setback fires. Higher is more lenient.
+    max-violations: 5
+
   flight:
     # Physics-based vertical (Y-axis) flight simulation.
     # Simulates gravity each tick (vy = (vy - 0.08) * 0.98) and flags players
@@ -89,11 +97,11 @@ settings:
 ```
 
 ## How It Works
-1. The plugin intercepts `ServerboundMovePlayerPacket` on the Netty thread before the server processes it.
-2. For each packet, it measures the wall-clock gap since the last accepted packet and converts it to ticks (`round(timeDelta / 50 ms)`, capped at `max-lag-ticks`). This is the number of game updates the player could legitimately have experienced.
-3. **Horizontal check**: Minecraft's ground/air movement equations are run for those ticks, applying block friction (normal, ice, blue ice, slime), air drag, sprint/jump boost, water drag, and Speed/Slowness potion modifiers. The resulting total displacement is the horizontal maximum the player could legitimately have moved.
-4. **Vertical check**: The same tick-count is used to simulate the player's Y velocity under gravity (`vy = (vy − 0.08) × 0.98` per tick), predicting the maximum upward displacement from the last known velocity. This catches both hover cheats and upward speed cheats.
-5. Any excess in either axis accumulates in a shared per-player violation buffer that decays on clean packets. Movement is blocked only when the buffer exceeds `violation-threshold`.
+1. The plugin intercepts `ServerboundMovePlayerPacket` on the Netty thread before the server processes it. Each position-changing packet is treated as exactly one game tick.
+2. A transaction (ping) packet is sent to each player every server tick; the client must echo it back immediately, giving a server-anchored clock the client cannot speed up. Each movement packet adds 50 ms to a running balance and if that balance runs ahead of real time, the client is sending packets faster than 20/s and is flagged.
+3. Minecraft's ground/air movement equations are run for the tick, applying block friction (normal, ice, blue ice, slime), air drag, sprint/jump boost, water drag, and Speed/Slowness potion modifiers. The result is the maximum a player could legitimately move in that single tick.
+4. The player's Y velocity is simulated under gravity (`vy = (vy − 0.08) × 0.98` per tick), predicting the maximum upward displacement from the last known velocity. This catches both hover cheats and upward speed cheats.
+5. Any excess in the speed/flight checks accumulates in a per-player violation buffer that decays on clean packets. When the buffer exceeds `violation-threshold` (or the timer check exceeds `max-violations`), the player is rubber-banded to their last valid position and the resulting teleport re-anchors their tracked state.
 
 ## Commands
 - `/velocityguard reload`: Reloads the plugin configuration (requires the `velocityguard.admin` permission).
@@ -126,7 +134,7 @@ api.enableFlightEnforcement(player);
 
 // Control what happens on violation:
 //   true  = teleport to highest solid block (default)
-//   false = standard VelocityGuard movement-block behaviour
+//   false = standard VelocityGuard setback behaviour
 api.enableFlightEnforcement(player, false);
 
 // Also control sensitivity via air-tick threshold.

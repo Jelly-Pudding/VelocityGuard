@@ -1,9 +1,9 @@
 # VelocityGuard Configuration
 #
-# Speed enforcement uses a physics simulation.
-# On each movement packet VelocityGuard runs Minecraft's own
-# horizontal movement equations to predict the maximum displacement the player
-# could legitimately produce and then compares that against what the packet claims.
+# Speed enforcement uses a physics simulation plus a ping-independent timer check.
+# On each movement packet VelocityGuard runs Minecraft's own movement equations to
+# predict the maximum displacement the player could legitimately produce in one
+# tick, and separately polices how many packets arrive per real second.
 
 checks:
   # Global leniency multiplier applied to every max-allowed displacement value.
@@ -13,9 +13,6 @@ checks:
   leniency-multiplier: 1.10
 
   speed:
-    # Maximum client ticks to credit for a single delayed packet.
-    max-lag-ticks: 20
-
     # Extra displacement slack (blocks) added per expected tick.
     # Absorbs sub-block floating-point variance between client and server.
     per-tick-tolerance: 0.08
@@ -27,9 +24,6 @@ checks:
 
     # Blocks subtracted from the violation buffer per clean (normal) packet.
     violation-decay: 0.15
-
-    # Seconds to block all movement after a confirmed violation.
-    cancel-duration: 1
 
     # Knockback from being hit: the large initial velocity is modelled by
     # scaling the tracked speed; this controls how long and how strongly.
@@ -54,6 +48,18 @@ checks:
     # still catching blatant teleport-speed exploits.
     vehicle-ice-speed-multiplier: 4.3
 
+  timer:
+    # Each movement packet a client sends represents one game tick (50ms).
+    # VelocityGuard accumulates that claimed time and compares it against real
+    # time anchored to a server clock (transactions) the client cannot speed up.
+    enabled: true
+
+    # Network-jitter tolerance in milliseconds.
+    drift-millis: 120
+
+    # Consecutive too-fast packets before a setback fires. Higher is more lenient.
+    max-violations: 5
+
   flight:
     # Physics-based vertical (Y-axis) flight simulation.
     # Simulates gravity each tick (vy = (vy - 0.08) * 0.98) and flags players
@@ -63,5 +69,5 @@ checks:
     enabled: true
 
 settings:
-  # Verbose per-packet logging.  Enable only for testing.
+  # Verbose per-packet logging. Enable only for testing.
   debug-mode: false

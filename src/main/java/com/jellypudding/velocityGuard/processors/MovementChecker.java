@@ -106,11 +106,26 @@ public class MovementChecker {
         // For vehicles there is no onGround in the packet, so fall back to server-side.
         boolean nowOnGround = isVehicle ? PhysicsEngine.isNearGroundAt(to) : clientOnGround;
 
-        // Time since the last accepted packet.
-        long timeDeltaMs = now - state.lastPacketMs;
+        // Each accepted movement packet is exactly one client tick.
+        int expectedTicks = 1;
 
-        int expectedTicks = (int) Math.max(1,
-                Math.min(Math.round((double) timeDeltaMs / 50.0), cfg.getMaxLagTicks()));
+        if (cfg.isTimerCheckEnabled() && !isVehicle) {
+            boolean tooFast = TimerCheck.onMovement(state, cfg.getTimerDriftNanos());
+            if (tooFast) {
+                state.timerViolations += 1.0;
+                if (plugin.isDebugEnabled()) {
+                    plugin.getLogger().info(String.format(
+                            "[VG-Timer] %s  timerViolations=%.1f  ping=%dms",
+                            player.getName(), state.timerViolations,
+                            state.transactionPingNanos / 1_000_000L));
+                }
+                if (state.timerViolations >= cfg.getTimerMaxViolations()) {
+                    return setback(player, "Timer / speed cheat detected");
+                }
+            } else {
+                state.timerViolations = Math.max(0.0, state.timerViolations - 0.25);
+            }
+        }
 
         boolean speedViolation = false;
 
@@ -242,9 +257,10 @@ public class MovementChecker {
                 state.trackedVelocityY = 0.0;
             }
 
-            state.wasOnGround  = nowOnGround;
-            state.lastPosition = to.clone();
-            state.lastPacketMs = now;
+            state.wasOnGround   = nowOnGround;
+            state.lastPosition  = to.clone();
+            state.lastValidPosition = to.clone();
+            state.lastPacketMs  = now;
         }
 
         FlightEnforcementConfig flightCfg = flightEnforcedPlayers.get(id);
@@ -270,22 +286,19 @@ public class MovementChecker {
         }
 
         if (speedViolation) {
-            state.violationBuffer = 0.0;
             if (plugin.isDebugEnabled()) {
                 plugin.getLogger().info("[VG] " + player.getName()
                         + " flagged for speed (buffer exceeded threshold).");
             }
-            blockPlayerMovement(player, "Excessive speed detected");
-            return false;
+            return setback(player, "Excessive speed detected");
         }
 
         if (flyingViolation && state.airTicks >= flightThreshold) {
             if (flightCfg != null && flightCfg.groundOnViolation()) {
                 groundPlayerForViolation(player);
-            } else {
-                blockPlayerMovement(player, "Illegal flight detected");
+                return false;
             }
-            return false;
+            return setback(player, "Illegal flight detected");
         }
 
         return true;
@@ -396,25 +409,36 @@ public class MovementChecker {
         return false;
     }
 
-    private void blockPlayerMovement(Player player, String reason) {
+    // Rewind the player to their last valid position.
+    private boolean setback(Player player, String reason) {
         PlayerMovementState state = playerStates.get(player.getUniqueId());
-        if (state == null) return;
+        if (state == null) return false;
 
-        int secs = plugin.getConfigManager().getCancelDuration();
-        state.blockedUntilMs = System.currentTimeMillis() + secs * 1_000L;
+        final Location target = state.lastValidPosition != null
+                ? state.lastValidPosition.clone()
+                : player.getLocation();
+
+        long now = System.currentTimeMillis();
+        // Deny movement packets until the teleport round-trips, then re-anchor.
+        state.settleUntilMs   = now + 500L;
+        state.violationBuffer = 0.0;
+        state.timerViolations = 0.0;
 
         new BukkitRunnable() {
             @Override public void run() {
                 if (!player.isOnline()) return;
-                String unit = secs == 1 ? "second" : "seconds";
-                player.sendMessage("§c[VelocityGuard] §f" + reason
-                        + ". Movement blocked for " + secs + " " + unit + ".");
+                Location current = player.getLocation();
+                target.setYaw(current.getYaw());
+                target.setPitch(current.getPitch());
+                player.teleport(target);
                 if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info("[VG] Blocked " + player.getName()
-                            + " for " + secs + "s - " + reason);
+                    plugin.getLogger().info("[VG] Setback " + player.getName()
+                            + " - " + reason);
                 }
             }
         }.runTask(plugin);
+
+        return false;
     }
 
     private void groundPlayerForViolation(Player player) {
@@ -468,16 +492,37 @@ public class MovementChecker {
     public void registerPlayer(Player player) {
         if (player == null) return;
         UUID id = player.getUniqueId();
+        long now = System.currentTimeMillis();
 
+        PlayerMovementState state = playerStates.computeIfAbsent(
+                id, k -> new PlayerMovementState(player.getLocation(), now));
+        state.reset(player.getLocation(), now);
+        state.blockedUntilMs = 0;
+        state.settleUntilMs  = now + 500L;
+        state.lastDamageMs   = 0;
+        state.lastRiptideMs  = 0;
+    }
+
+    public int registerOutgoingTransaction(UUID id, long sendNano) {
         PlayerMovementState state = playerStates.get(id);
-        if (state != null) {
-            state.blockedUntilMs = 0;
-            state.settleUntilMs  = 0;
-            state.lastDamageMs   = 0;
-            state.lastRiptideMs  = 0;
-            state.violationBuffer = 0.0;
-            state.trackedSpeed   = 0.0;
-        }
+        if (state == null) return Integer.MIN_VALUE;
+        int transactionId = state.nextTransactionId();
+        state.onTransactionSent(transactionId, sendNano);
+        return transactionId;
+    }
+
+    public boolean handlePong(UUID id, int transactionId, long nowNano) {
+        PlayerMovementState state = playerStates.get(id);
+        if (state == null) return false;
+        boolean matched = state.onTransactionResponse(transactionId, nowNano);
+        if (matched) TimerCheck.onTransaction(state);
+        return matched;
+    }
+
+    public void unregisterPlayer(UUID id) {
+        if (id == null) return;
+        playerStates.remove(id);
+        flightEnforcedPlayers.remove(id);
     }
 
     public void unregisterPlayer(UUID id) {

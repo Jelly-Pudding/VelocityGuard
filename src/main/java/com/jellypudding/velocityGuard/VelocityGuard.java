@@ -7,6 +7,7 @@ import com.jellypudding.velocityGuard.listeners.DamageListener;
 import com.jellypudding.velocityGuard.listeners.TeleportListener;
 import com.jellypudding.velocityGuard.listeners.TridentListener;
 import com.jellypudding.velocityGuard.managers.ConfigManager;
+import com.jellypudding.velocityGuard.managers.TransactionManager;
 import com.jellypudding.velocityGuard.processors.MovementChecker;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -19,6 +20,7 @@ public final class VelocityGuard extends JavaPlugin {
     private DamageListener damageListener;
     private TeleportListener teleportListener;
     private TridentListener tridentListener;
+    private TransactionManager transactionManager;
 
     @Override
     public void onEnable() {
@@ -35,6 +37,9 @@ public final class VelocityGuard extends JavaPlugin {
 
         // Install packet handlers
         packetListener.inject();
+
+        this.transactionManager = new TransactionManager(this);
+        this.transactionManager.start();
 
         // Register event listeners
         getServer().getPluginManager().registerEvents(this.damageListener, this);
@@ -55,6 +60,10 @@ public final class VelocityGuard extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (transactionManager != null) {
+            transactionManager.stop();
+        }
+
         // Remove packet handlers
         if (packetListener != null) {
             packetListener.uninject();
