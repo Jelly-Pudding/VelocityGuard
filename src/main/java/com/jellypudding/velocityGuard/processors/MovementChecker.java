@@ -160,6 +160,7 @@ public class MovementChecker {
         }
 
         boolean speedViolation = false;
+        boolean exceededThisPacket = false;
 
         if (!checkSpecialSpeedExemption(player, state, now, cfg)) {
             double maxAllowed = computeMaxAllowedDisplacementVehicle(
@@ -168,6 +169,7 @@ public class MovementChecker {
             if (packetDistance > 0.001 && packetDistance > maxAllowed) {
                 double excess = packetDistance - maxAllowed;
                 state.violationBuffer += excess;
+                exceededThisPacket = true;
 
                 if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(String.format(
@@ -246,6 +248,7 @@ public class MovementChecker {
                 if (dy >= 0 && dy > yThreshold) {
                     double excess = dy - yThreshold;
                     state.violationBuffer += excess;
+                    exceededThisPacket = true;
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(String.format(
                                 "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  ticks=%d  buf=%.3f",
@@ -299,7 +302,9 @@ public class MovementChecker {
 
             state.wasOnGround   = nowOnGround;
             state.lastPosition  = to.clone();
-            state.lastValidPosition = to.clone();
+            if (!exceededThisPacket) {
+                state.lastValidPosition = to.clone();
+            }
             state.lastPacketMs  = now;
         }
 
