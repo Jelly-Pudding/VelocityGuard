@@ -56,6 +56,10 @@ public class PlayerMovementState {
     // the first packet is accepted as a fresh anchor without any violation check.
     public long settleUntilMs;
 
+    public boolean awaitingSetback;
+    public Location setbackTarget;
+    public long lastSetbackMs;
+
     // Air-tick counter for flight detection.
     public int airTicks;
 
@@ -113,6 +117,7 @@ public class PlayerMovementState {
         this.violationBuffer  = 0.0;
         this.airTicks         = 0;
         this.timerViolations  = 0.0;
+        this.awaitingSetback  = false;
     }
 
     public int nextTransactionId() {

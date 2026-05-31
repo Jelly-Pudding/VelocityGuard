@@ -26,6 +26,11 @@ public class MovementChecker {
 
     private final Map<UUID, FlightEnforcementConfig> flightEnforcedPlayers = new ConcurrentHashMap<>();
 
+    private static final double SETBACK_RESYNC_TOLERANCE   = 0.5;
+    private static final double SETBACK_RESYNC_TOLERANCE_Y = 2.0;
+
+    private static final long SETBACK_RETELEPORT_MS = 500L;
+
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
         startStationaryGroundCheck();
@@ -42,6 +47,26 @@ public class MovementChecker {
         PlayerMovementState state = playerStates.computeIfAbsent(
                 id, k -> new PlayerMovementState(to, now));
 
+        if (state.awaitingSetback && state.setbackTarget != null) {
+            double sdx = to.getX() - state.setbackTarget.getX();
+            double sdz = to.getZ() - state.setbackTarget.getZ();
+            double sHoriz = Math.sqrt(sdx * sdx + sdz * sdz);
+            double sVert  = Math.abs(to.getY() - state.setbackTarget.getY());
+
+            if (sHoriz <= SETBACK_RESYNC_TOLERANCE && sVert <= SETBACK_RESYNC_TOLERANCE_Y) {
+                state.awaitingSetback = false;
+                state.reset(state.setbackTarget, now);
+                state.wasOnGround = clientOnGround;
+                return true;
+            }
+
+            if (now - state.lastSetbackMs > SETBACK_RETELEPORT_MS) {
+                teleportToTarget(player, state.setbackTarget.clone());
+                state.lastSetbackMs = now;
+            }
+            return false;
+        }
+
         // Settle window: absorbs round-trip latency after a server teleport
         // (respawn, /tp, portal).  On expiry the first packet is accepted as a
         // fresh anchor so the position jump doesn't trigger a false violation.
@@ -49,6 +74,7 @@ public class MovementChecker {
         if (state.settleUntilMs > 0) {
             state.settleUntilMs   = 0;
             state.lastPosition    = to.clone();
+            state.lastValidPosition = to.clone();
             state.lastPacketMs    = now;
             state.trackedSpeed    = 0.0;
             state.trackedVelocityY = 0.0;
@@ -63,6 +89,7 @@ public class MovementChecker {
         if (state.blockedUntilMs > 0) {
             state.blockedUntilMs  = 0;
             state.lastPosition    = to.clone();
+            state.lastValidPosition = to.clone();
             state.lastPacketMs    = now;
             state.trackedSpeed    = 0.0;
             state.trackedVelocityY = 0.0;
@@ -75,6 +102,7 @@ public class MovementChecker {
         if (gm == GameMode.CREATIVE || gm == GameMode.SPECTATOR) {
             state.wasInCreative   = true;
             state.lastPosition    = to.clone();
+            state.lastValidPosition = to.clone();
             state.lastPacketMs    = now;
             state.trackedSpeed    = 0.0;
             state.trackedVelocityY = 0.0;
@@ -421,7 +449,9 @@ public class MovementChecker {
         return false;
     }
 
-    // Rewind the player to their last valid position.
+    // Rewind the player to their last valid position and enter the enforcement
+    // window (see processMovement). Always returns false so the offending packet
+    // is cancelled in one statement.
     private boolean setback(Player player, String reason) {
         PlayerMovementState state = playerStates.get(player.getUniqueId());
         if (state == null) return false;
@@ -431,11 +461,21 @@ public class MovementChecker {
                 : player.getLocation();
 
         long now = System.currentTimeMillis();
-        // Deny movement packets until the teleport round-trips, then re-anchor.
-        state.settleUntilMs   = now + 500L;
+        state.awaitingSetback = true;
+        state.setbackTarget   = target.clone();
+        state.lastSetbackMs   = now;
         state.violationBuffer = 0.0;
         state.timerViolations = 0.0;
 
+        teleportToTarget(player, target);
+
+        if (plugin.isDebugEnabled()) {
+            plugin.getLogger().info("[VG] Setback " + player.getName() + " - " + reason);
+        }
+        return false;
+    }
+
+    private void teleportToTarget(Player player, Location target) {
         new BukkitRunnable() {
             @Override public void run() {
                 if (!player.isOnline()) return;
@@ -443,14 +483,8 @@ public class MovementChecker {
                 target.setYaw(current.getYaw());
                 target.setPitch(current.getPitch());
                 player.teleport(target);
-                if (plugin.isDebugEnabled()) {
-                    plugin.getLogger().info("[VG] Setback " + player.getName()
-                            + " - " + reason);
-                }
             }
         }.runTask(plugin);
-
-        return false;
     }
 
     private void groundPlayerForViolation(Player player) {
@@ -581,10 +615,20 @@ public class MovementChecker {
 
     public void resetPlayerState(Player player, Location location) {
         PlayerMovementState state = playerStates.get(player.getUniqueId());
-        if (state != null && location != null) {
-            long now = System.currentTimeMillis();
-            state.reset(location, now);
-            state.settleUntilMs = now + 500L;
+        if (state == null || location == null) return;
+
+        if (state.awaitingSetback && state.setbackTarget != null) {
+            double dx = location.getX() - state.setbackTarget.getX();
+            double dy = location.getY() - state.setbackTarget.getY();
+            double dz = location.getZ() - state.setbackTarget.getZ();
+            if (dx * dx + dy * dy + dz * dz < 0.01) {
+                return;
+            }
         }
+
+        long now = System.currentTimeMillis();
+        state.awaitingSetback = false;
+        state.reset(location, now);
+        state.settleUntilMs = now + 500L;
     }
 }
