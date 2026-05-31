@@ -45,6 +45,9 @@ public class PlayerMovementState {
     // Wall-clock time when elytra gliding stopped.
     public long elytraLandingMs;
 
+    // Wall-clock time the player was last on/just above a slime block.
+    public long lastSlimeContactMs;
+
     // Wall-clock time until all movement packets are denied.
     public long blockedUntilMs;
 

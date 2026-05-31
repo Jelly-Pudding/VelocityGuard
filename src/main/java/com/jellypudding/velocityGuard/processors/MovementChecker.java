@@ -109,7 +109,11 @@ public class MovementChecker {
         // Each accepted movement packet is exactly one client tick.
         int expectedTicks = 1;
 
-        if (cfg.isTimerCheckEnabled() && !isVehicle) {
+        if (!isVehicle && MovementUtils.isNearSlime(player)) {
+            state.lastSlimeContactMs = now;
+        }
+
+        if (cfg.isTimerCheckEnabled()) {
             boolean tooFast = TimerCheck.onMovement(state, cfg.getTimerDriftNanos());
             if (tooFast) {
                 state.timerViolations += 1.0;
@@ -187,7 +191,15 @@ public class MovementChecker {
             boolean yExempt = currentlyGliding
                     || MovementUtils.isInLiquid(player)
                     || player.isFlying()
-                    || player.hasPotionEffect(PotionEffectType.LEVITATION);
+                    || player.hasPotionEffect(PotionEffectType.LEVITATION)
+                    || MovementUtils.isClimbing(player)
+                    || MovementUtils.isInBubbleColumn(player)
+                    || (state.lastSlimeContactMs > 0
+                            && now - state.lastSlimeContactMs < 1_000)
+                    || (state.lastDamageMs > 0
+                            && now - state.lastDamageMs < cfg.getKnockbackDuration())
+                    || (state.lastRiptideMs > 0
+                            && now - state.lastRiptideMs < cfg.getRiptideDuration());
 
             if (!yExempt) {
                 double gravityVal = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)

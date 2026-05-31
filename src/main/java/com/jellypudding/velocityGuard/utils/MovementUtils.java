@@ -19,6 +19,12 @@ public class MovementUtils {
     private static final Set<Material> ICE_TYPES = Set.of(
             Material.ICE, Material.PACKED_ICE, Material.BLUE_ICE, Material.FROSTED_ICE);
 
+    private static final Set<Material> CLIMBABLE = Set.of(
+            Material.LADDER, Material.VINE, Material.SCAFFOLDING,
+            Material.WEEPING_VINES, Material.WEEPING_VINES_PLANT,
+            Material.TWISTING_VINES, Material.TWISTING_VINES_PLANT,
+            Material.CAVE_VINES, Material.CAVE_VINES_PLANT);
+
     public static boolean isNearGround(Player player) {
         return isNearGroundAt(player.getLocation());
     }
@@ -61,6 +67,31 @@ public class MovementUtils {
         return ICE_TYPES.contains(b.getType());
     }
 
+    // True when the player occupies a climbable block.
+    public static boolean isClimbing(Player player) {
+        Location loc = player.getLocation();
+        if (CLIMBABLE.contains(loc.getBlock().getType())) return true;
+        return CLIMBABLE.contains(player.getEyeLocation().getBlock().getType());
+    }
+
+    // True when the player is inside a bubble column.
+    public static boolean isInBubbleColumn(Player player) {
+        Location loc = player.getLocation();
+        if (loc.getBlock().getType() == Material.BUBBLE_COLUMN) return true;
+        return loc.clone().add(0, 1, 0).getBlock().getType() == Material.BUBBLE_COLUMN;
+    }
+
+    // True when a slime block is just below the player.
+    public static boolean isNearSlime(Player player) {
+        Location loc = player.getLocation();
+        for (double y = -0.1; y >= -1.5; y -= 0.5) {
+            if (loc.clone().add(0, y, 0).getBlock().getType() == Material.SLIME_BLOCK) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean isRidingGhast(Player player) {
         if (!player.isInsideVehicle() || player.getVehicle() == null) return false;
         return player.getVehicle().getType() == EntityType.HAPPY_GHAST;
@@ -75,7 +106,8 @@ public class MovementUtils {
             return new FlightResult(currentAirTicks, false);
         }
 
-        if (isNearGround(player) || isInLiquid(player)) {
+        if (isNearGround(player) || isInLiquid(player)
+                || isClimbing(player) || isInBubbleColumn(player)) {
             return new FlightResult(0, false);
         }
 
