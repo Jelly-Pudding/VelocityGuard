@@ -537,12 +537,6 @@ public class MovementChecker {
         flightEnforcedPlayers.remove(id);
     }
 
-    public void unregisterPlayer(UUID id) {
-        if (id == null) return;
-        playerStates.remove(id);
-        flightEnforcedPlayers.remove(id);
-    }
-
     public void recordPlayerDamage(Player player, boolean isDragonDamage) {
         if (player == null) return;
         PlayerMovementState state = playerStates.get(player.getUniqueId());
