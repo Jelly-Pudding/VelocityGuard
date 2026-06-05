@@ -11,7 +11,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -259,13 +258,8 @@ public class PacketListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerTeleport(PlayerTeleportEvent event) {
-        Location to = event.getTo();
-        if (to == null) return;
-        plugin.getMovementChecker().resetPlayerState(event.getPlayer(), to);
-    }
-
+    // PlayerTeleportEvent is handled solely by TeleportListener (single guarded
+    // resetPlayerState call) to avoid double-arming the post-teleport gate.
     // PlayerRespawnEvent is a separate code path from teleports in Bukkit.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerRespawn(PlayerRespawnEvent event) {

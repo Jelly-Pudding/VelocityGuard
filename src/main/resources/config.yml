@@ -9,13 +9,16 @@ checks:
   # Global leniency multiplier applied to every max-allowed displacement value.
   # Raise to allow more movement before a flag fires; lower toward 1.0 for
   # stricter enforcement. Must be >= 1.0.
-  # For example 1.10 = 10% headroom above the raw physics prediction.
-  leniency-multiplier: 1.10
+  # For example 1.15 = 15% headroom above the raw physics prediction.
+  # This is the main no-false-positive lever: raise it if legit movement
+  # (jumps, stairs, ice) ever rubberbands; lower it toward 1.0 to catch
+  # smaller speed advantages at the risk of occasional false flags.
+  leniency-multiplier: 1.15
 
   speed:
     # Extra displacement slack (blocks) added per expected tick.
     # Absorbs sub-block floating-point variance between client and server.
-    per-tick-tolerance: 0.08
+    per-tick-tolerance: 0.12
 
     # Accumulated excess displacement (blocks) before a violation fires.
     # The buffer decays on clean packets so only *sustained* cheating reaches
@@ -36,9 +39,16 @@ checks:
       multiplier: 2.5
       duration: 3000
 
-    # Elytra landing: horizontal momentum carries briefly after stopping glide.
+    # Elytra (gliding) settings.
     elytra:
-      landing-duration: 1500  # ms of post-landing buffer
+      # Enforce a speed cap while gliding. Set to false to exempt elytra gliding
+      # from the speed check entirely (legit-elytra escape hatch) - flight/vertical
+      # checks already ignore gliding regardless of this setting.
+      enabled: true
+      # Max horizontal speed (blocks/tick) allowed while gliding. Raise to be more
+      # lenient (firework/dive runs can briefly spike); only used when enabled: true.
+      max-speed: 7.0
+      landing-duration: 1500
 
     # Vehicle speed multipliers (horse, boat, strider, pig, etc.).
     vehicle-speed-multiplier: 1.5

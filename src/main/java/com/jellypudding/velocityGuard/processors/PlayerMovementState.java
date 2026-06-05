@@ -51,10 +51,16 @@ public class PlayerMovementState {
     // Wall-clock time until all movement packets are denied.
     public long blockedUntilMs;
 
-    // Short post-teleport settle window: packets are denied until the server
-    // teleport (respawn, /tp, portal, setback) reaches the client.  On expiry
-    // the first packet is accepted as a fresh anchor without any violation check.
+    // Post-teleport gate. A genuine server teleport (respawn, /tp, portal, end
+    // gateway) is "settled" only once the client has provably acknowledged it via
+    // the transaction clock - NOT after a fixed wall-clock window. While awaiting,
+    // movement packets are accepted and used purely to re-anchor tracking (the
+    // server stays in sync with the client's honest post-teleport physics), but the
+    // speed/flight judgement is skipped. settleUntilMs is kept only as a lost-pong
+    // fallback so a dropped transaction can never pin a player forever.
     public long settleUntilMs;
+    public volatile boolean awaitingTeleport;
+    public int teleportAnchorTxnId;
 
     public boolean awaitingSetback;
     public Location setbackTarget;
@@ -118,10 +124,25 @@ public class PlayerMovementState {
         this.airTicks         = 0;
         this.timerViolations  = 0.0;
         this.awaitingSetback  = false;
+        this.awaitingTeleport = false;
     }
 
     public int nextTransactionId() {
         return transactionIdCounter.getAndIncrement();
+    }
+
+    // The most recent id handed out by nextTransactionId (i.e. the last transaction
+    // the server sent). Used to anchor teleport/setback acknowledgement to the
+    // transaction clock. Before any transaction is sent this is one below the first
+    // id, so the very first pong after a teleport confirms it.
+    public int lastSentTransactionId() {
+        return transactionIdCounter.get() - 1;
+    }
+
+    // True once the client has acknowledged a transaction sent at or after anchorId.
+    // Ids increase monotonically from 0x56470000; compareUnsigned is wrap-safe.
+    public boolean transactionAcknowledged(int anchorId) {
+        return Integer.compareUnsigned(lastTransactionReceivedId, anchorId) > 0;
     }
 
     public void onTransactionSent(int id, long sendNano) {

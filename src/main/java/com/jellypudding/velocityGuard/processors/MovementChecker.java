@@ -31,6 +31,12 @@ public class MovementChecker {
 
     private static final long SETBACK_RETELEPORT_MS = 500L;
 
+    // Upper bound on how many ticks a single packet's over-limit BUDGET may span.
+    // Lets a legitimately late/coalesced packet (lag, packet loss) carry several ticks
+    // of distance without being flagged, while still catching a blatant single-packet
+    // teleport. Only affects the over-limit decision - never the per-tick speed tracking.
+    private static final int MAX_CATCHUP_TICKS = 4;
+
     public MovementChecker(VelocityGuard plugin) {
         this.plugin = plugin;
         startStationaryGroundCheck();
@@ -53,6 +59,11 @@ public class MovementChecker {
             double sHoriz = Math.sqrt(sdx * sdx + sdz * sdz);
             double sVert  = Math.abs(to.getY() - state.setbackTarget.getY());
 
+            // Resync as soon as the client has actually arrived back at the target.
+            // The tolerance is what makes this work at any ping: in-flight far packets
+            // from before the teleport landed keep being denied (so the cheat nets no
+            // ground), and the moment a packet near the target arrives we hand control
+            // back. Position-based (not transaction-based) so latency can't livelock it.
             if (sHoriz <= SETBACK_RESYNC_TOLERANCE && sVert <= SETBACK_RESYNC_TOLERANCE_Y) {
                 state.awaitingSetback = false;
                 state.reset(state.setbackTarget, now);
@@ -60,26 +71,53 @@ public class MovementChecker {
                 return true;
             }
 
+            // Still away from the target: re-issue the teleport periodically in case the
+            // first one was lost or the client is still catching up.
             if (now - state.lastSetbackMs > SETBACK_RETELEPORT_MS) {
                 teleportToTarget(player, state.setbackTarget.clone());
                 state.lastSetbackMs = now;
             }
+            if (plugin.isDebugEnabled()) {
+                plugin.getLogger().info(String.format(
+                        "[VG-Setback] %s PINNED: client at (%.1f,%.1f,%.1f) target (%.1f,%.1f,%.1f) - denying",
+                        player.getName(), to.getX(), to.getY(), to.getZ(),
+                        state.setbackTarget.getX(), state.setbackTarget.getY(), state.setbackTarget.getZ()));
+            }
             return false;
         }
 
-        // Settle window: absorbs round-trip latency after a server teleport
-        // (respawn, /tp, portal).  On expiry the first packet is accepted as a
-        // fresh anchor so the position jump doesn't trigger a false violation.
-        if (now < state.settleUntilMs) return false;
-        if (state.settleUntilMs > 0) {
-            state.settleUntilMs   = 0;
-            state.lastPosition    = to.clone();
+        // Post-teleport gate (respawn, /tp, portal, end gateway). A genuine server
+        // teleport legitimately looks like a huge jump, so we must not judge speed
+        // until the client has provably acknowledged the teleport. Unlike the old
+        // wall-clock settle window we ACCEPT these packets (return true) and re-anchor
+        // tracking to them, rather than dropping them - dropping the player's honest
+        // post-teleport fall packets desynced the server (the server held the player
+        // at the teleport Y while the client fell), which is what placed players under
+        // the block after end-gateway teleports. Completion is transaction-anchored
+        // (ping-correct for any latency); settleUntilMs is only a lost-pong fallback.
+        if (state.awaitingTeleport) {
+            boolean confirmed = state.transactionAcknowledged(state.teleportAnchorTxnId)
+                    || (state.settleUntilMs > 0 && now >= state.settleUntilMs);
+            if (!confirmed) {
+                state.lastPosition     = to.clone();
+                state.lastValidPosition = to.clone();
+                state.lastPacketMs     = now;
+                state.trackedSpeed     = 0.0;
+                state.trackedVelocityY = 0.0;
+                state.violationBuffer  = 0.0;
+                state.wasOnGround      = clientOnGround;
+                return true;
+            }
+            // Acknowledged: take this packet as the fresh post-teleport anchor.
+            state.awaitingTeleport = false;
+            state.settleUntilMs    = 0;
+            state.lastPosition     = to.clone();
             state.lastValidPosition = to.clone();
-            state.lastPacketMs    = now;
-            state.trackedSpeed    = 0.0;
+            state.lastPacketMs     = now;
+            state.trackedSpeed     = 0.0;
             state.trackedVelocityY = 0.0;
-            state.violationBuffer = 0.0;
-            state.wasOnGround     = clientOnGround;
+            state.violationBuffer  = 0.0;
+            state.wasOnGround      = clientOnGround;
             return true;
         }
 
@@ -134,8 +172,24 @@ public class MovementChecker {
         // For vehicles there is no onGround in the packet, so fall back to server-side.
         boolean nowOnGround = isVehicle ? PhysicsEngine.isNearGroundAt(to) : clientOnGround;
 
-        // Each accepted movement packet is exactly one client tick.
+        // Per-tick speed tracking treats every packet as exactly ONE client tick (Grim's
+        // model). We must NOT divide the tracked speed by a wall-clock tick count: dt
+        // cannot tell "one tick that arrived late" from "two ticks coalesced" (both look
+        // like ~80ms), and dividing corrupts the tracked speed during bursty movement
+        // (sprint jumps) -> false rubberbands. So expectedTicks stays 1 for tracking.
         int expectedTicks = 1;
+
+        // The OVER-LIMIT budget is separate: a packet that genuinely arrived late may
+        // legitimately carry several ticks of motion. We size only the allowed-distance
+        // budget to the real time since the last RECEIVED packet (capped) so those late
+        // packets are not falsely flagged/cancelled - the cause of jitter rubberbanding -
+        // WITHOUT touching the per-tick tracking above. lastPacketMs advances on every
+        // packet (clean or cancelled), so a constant-rate cheat always sees a 1-tick
+        // budget (dt ~50ms) and stays pinned, while a real network gap (lost/coalesced
+        // packet) widens the budget for that one packet. Safe vs timer cheats: they send
+        // packets EARLY (dt < 50ms -> 1 tick), and TimerCheck polices packet rate anyway.
+        int budgetTicks = (int) Math.max(1L,
+                Math.min(MAX_CATCHUP_TICKS, Math.round((now - state.lastPacketMs) / 50.0)));
 
         if (!isVehicle && MovementUtils.isNearSlime(player)) {
             state.lastSlimeContactMs = now;
@@ -162,9 +216,13 @@ public class MovementChecker {
         boolean speedViolation = false;
         boolean exceededThisPacket = false;
 
-        if (!checkSpecialSpeedExemption(player, state, now, cfg)) {
+        // When the elytra speed check is disabled, gliding movement is exempt from the
+        // horizontal speed check entirely (vertical flight already ignores gliding).
+        boolean elytraExempt = currentlyGliding && !cfg.isElytraCheckEnabled();
+
+        if (!elytraExempt && !checkSpecialSpeedExemption(player, state, now, cfg)) {
             double maxAllowed = computeMaxAllowedDisplacementVehicle(
-                    player, state, expectedTicks, cfg, isVehicle, to, nowOnGround);
+                    player, state, budgetTicks, cfg, isVehicle, to, nowOnGround);
 
             if (packetDistance > 0.001 && packetDistance > maxAllowed) {
                 double excess = packetDistance - maxAllowed;
@@ -173,8 +231,8 @@ public class MovementChecker {
 
                 if (plugin.isDebugEnabled()) {
                     plugin.getLogger().info(String.format(
-                            "[VG] %s  actual=%.3f  max=%.3f  ticks=%d  trackedSpeed=%.3f  buf=%.3f%s",
-                            player.getName(), packetDistance, maxAllowed, expectedTicks,
+                            "[VG] %s  actual=%.3f  max=%.3f  budget=%d  trackedSpeed=%.3f  buf=%.3f%s",
+                            player.getName(), packetDistance, maxAllowed, budgetTicks,
                             state.trackedSpeed, state.violationBuffer,
                             isVehicle ? " (vehicle)" : ""));
                 }
@@ -236,11 +294,11 @@ public class MovementChecker {
                         ? 0.01 : PhysicsEngine.GRAVITY;
                 double maxDy = 0.0;
                 double vy    = effectiveVelocityY;
-                for (int t = 0; t < expectedTicks; t++) {
+                for (int t = 0; t < budgetTicks; t++) {
                     maxDy += vy;
                     vy = (vy - gravityVal) * PhysicsEngine.VERTICAL_DRAG;
                 }
-                double yTolerance = cfg.getPerTickTolerance() * 1.5 * expectedTicks;
+                double yTolerance = cfg.getPerTickTolerance() * 1.5 * budgetTicks;
                 double yThreshold = maxDy * cfg.getLeniencyMultiplier() + yTolerance;
                 // Only flag upward or hovering violations (dy >= 0). When the player is
                 // descending (dy < 0), a landing mid-arc would look like excess without
@@ -251,9 +309,9 @@ public class MovementChecker {
                     exceededThisPacket = true;
                     if (plugin.isDebugEnabled()) {
                         plugin.getLogger().info(String.format(
-                                "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  ticks=%d  buf=%.3f",
+                                "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  budget=%d  buf=%.3f",
                                 player.getName(), dy, maxDy, effectiveVelocityY,
-                                expectedTicks, state.violationBuffer));
+                                budgetTicks, state.violationBuffer));
                     }
                     if (state.violationBuffer >= cfg.getViolationThreshold()) {
                         speedViolation = true;
@@ -262,6 +320,19 @@ public class MovementChecker {
             }
         }
 
+        // Tracking advances on EVERY packet that did not itself trip a full setback
+        // (Grim's model). We do NOT freeze lastPosition on a merely-over-limit packet:
+        // freezing it makes the next normal packet look ever farther from the stale
+        // anchor, snowballing a single misprediction into a guaranteed setback (and, with
+        // trackedSpeed reset to 0 after a setback, an infinite rubberband loop). By
+        // letting lastPosition/trackedSpeed follow the player, per-tick deltas stay ~1
+        // tick and the prediction re-converges within a packet or two. Zero net progress
+        // is still guaranteed two other ways:
+        //   - trackedSpeed is capped at the per-tick physics prediction (maxPerTick), so a
+        //     cheat's real speed is never baked in -> maxAllowed stays low -> it keeps
+        //     accruing buffer until the threshold fires a setback.
+        //   - lastValidPosition (the setback target) advances ONLY on clean packets, so a
+        //     sustained cheat (no clean packets) is always rewound to where it began.
         if (!speedViolation) {
             double actualPerTick = packetDistance / expectedTicks;
 
@@ -272,7 +343,7 @@ public class MovementChecker {
                 // trackedSpeed is correctly seeded with sprint-jump speed for subsequent ticks.
                 boolean isJumpTick = (state.wasOnGround || jumpLaunched) && !nowOnGround;
                 double maxPerTick = currentlyGliding
-                        ? 4.0
+                        ? cfg.getElytraSpeed()
                         : PhysicsEngine.simulateOneTick(
                                 state.trackedSpeed,
                                 PhysicsEngine.isNearGroundAt(state.lastPosition) && !isJumpTick,
@@ -302,11 +373,20 @@ public class MovementChecker {
 
             state.wasOnGround   = nowOnGround;
             state.lastPosition  = to.clone();
+            // The setback anchor only banks a position that was within the limits, so a
+            // setback always rewinds past any over-limit movement => zero net progress.
             if (!exceededThisPacket) {
                 state.lastValidPosition = to.clone();
             }
-            state.lastPacketMs  = now;
         }
+
+        // Always advance lastPacketMs, even for a cancelled (over-limit) packet. budgetTicks
+        // is derived from the time since this stamp; if it only moved on clean packets it
+        // would keep growing while a cheat is being cancelled, inflating the budget until a
+        // cheat packet slipped through. Updating it every packet keeps a constant-rate cheat
+        // pinned at a 1-tick budget (zero progress), while a genuinely late/coalesced legit
+        // packet (gap since the last RECEIVED packet) still gets its multi-tick budget.
+        state.lastPacketMs = now;
 
         FlightEnforcementConfig flightCfg = flightEnforcedPlayers.get(id);
         int flightThreshold = flightCfg != null ? flightCfg.airTickThreshold() : 40;
@@ -346,6 +426,19 @@ public class MovementChecker {
             return setback(player, "Illegal flight detected");
         }
 
+        // Over the limit but below the setback threshold: let the packet through (the
+        // server stays in sync and the prediction re-converges) while the buffer keeps
+        // climbing on continued over-limit packets. Because lastValidPosition was NOT
+        // advanced for it, the eventual setback still rewinds past everything since the
+        // last clean packet => zero net progress. A packet whose excess alone crosses the
+        // threshold already returned via setback() above, so a blatant teleport/speed
+        // burst is cancelled outright and never forwarded.
+        if (plugin.isDebugEnabled() && exceededThisPacket) {
+            plugin.getLogger().info(String.format(
+                    "[VG-Decision] %s OVER (buffering, not cancelled) dist=%.3f budget=%d buf=%.2f",
+                    player.getName(), packetDistance, budgetTicks, state.violationBuffer));
+        }
+
         return true;
     }
 
@@ -355,7 +448,7 @@ public class MovementChecker {
         long now = System.currentTimeMillis();
 
         if (player.isGliding()) {
-            return 4.0 * ticks * cfg.getLeniencyMultiplier()
+            return cfg.getElytraSpeed() * ticks * cfg.getLeniencyMultiplier()
                     + cfg.getPerTickTolerance() * ticks;
         }
 
@@ -549,9 +642,9 @@ public class MovementChecker {
                 id, k -> new PlayerMovementState(player.getLocation(), now));
         state.reset(player.getLocation(), now);
         state.blockedUntilMs = 0;
-        state.settleUntilMs  = now + 500L;
         state.lastDamageMs   = 0;
         state.lastRiptideMs  = 0;
+        beginTeleportGate(state, now);
     }
 
     public int registerOutgoingTransaction(UUID id, long sendNano) {
@@ -634,6 +727,17 @@ public class MovementChecker {
         long now = System.currentTimeMillis();
         state.awaitingSetback = false;
         state.reset(location, now);
-        state.settleUntilMs = now + 500L;
+        beginTeleportGate(state, now);
+    }
+
+    // Arm the transaction-anchored post-teleport gate. The teleport is treated as
+    // settled once the client acknowledges a transaction sent after this point;
+    // settleUntilMs is a generous lost-pong fallback only.
+    private void beginTeleportGate(PlayerMovementState state, long now) {
+        state.teleportAnchorTxnId  = state.lastSentTransactionId();
+        state.settleUntilMs        = now + 2_000L;
+        // Volatile write LAST: publishes the two fields above to the Netty thread,
+        // which gates on this flag before reading them.
+        state.awaitingTeleport     = true;
     }
 }
