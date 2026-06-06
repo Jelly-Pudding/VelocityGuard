@@ -54,10 +54,16 @@ public class MovementChecker {
             double sdz = to.getZ() - state.setbackTarget.getZ();
             double sHoriz = Math.sqrt(sdx * sdx + sdz * sdz);
             double sVert  = Math.abs(to.getY() - state.setbackTarget.getY());
+            boolean atTarget = sHoriz <= SETBACK_RESYNC_TOLERANCE && sVert <= SETBACK_RESYNC_TOLERANCE_Y;
 
-            if (sHoriz <= SETBACK_RESYNC_TOLERANCE && sVert <= SETBACK_RESYNC_TOLERANCE_Y) {
+            if (atTarget || state.transactionAcknowledged(state.setbackAnchorTxnId)) {
                 state.awaitingSetback = false;
-                state.reset(state.setbackTarget, now);
+                if (!atTarget && player.isGliding()) {
+                    state.reset(to, now);
+                    state.trackedSpeed = PhysicsEngine.ELYTRA_FIREWORK_TERMINAL;
+                } else {
+                    state.reset(state.setbackTarget, now);
+                }
                 state.wasOnGround = clientOnGround;
                 return true;
             }
@@ -466,6 +472,7 @@ public class MovementChecker {
         state.awaitingSetback = true;
         state.setbackTarget   = target.clone();
         state.lastSetbackMs   = now;
+        state.setbackAnchorTxnId = state.lastSentTransactionId();
         state.violationBuffer = 0.0;
         state.timerViolations = 0.0;
 

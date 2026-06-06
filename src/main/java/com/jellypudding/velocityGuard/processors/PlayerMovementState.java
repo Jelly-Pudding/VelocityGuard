@@ -59,6 +59,7 @@ public class PlayerMovementState {
     public boolean awaitingSetback;
     public Location setbackTarget;
     public long lastSetbackMs;
+    public int setbackAnchorTxnId;
 
     // Air-tick counter for flight detection.
     public int airTicks;

@@ -3,7 +3,7 @@
 # Speed enforcement uses a physics simulation plus a ping-independent timer check.
 # On each movement packet VelocityGuard runs Minecraft's own movement equations to
 # predict the maximum displacement the player could legitimately produce in one
-# tick, and separately polices how many packets arrive per real second.
+# tick and separately polices how many packets arrive per real second.
 
 checks:
   # Global leniency multiplier applied to every max-allowed displacement value.

@@ -4,7 +4,7 @@ public final class TimerCheck {
 
     private TimerCheck() {}
 
-    private static final long TICK_NANOS = 50_000_000L; // 50ms
+    private static final long TICK_NANOS = 50_000_000L;
 
     public static void onTransaction(PlayerMovementState state) {
         if (state.hasGottenMovementAfterTransaction) {

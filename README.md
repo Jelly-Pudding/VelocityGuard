@@ -21,18 +21,14 @@
 ## Configuration
 In `config.yml`:
 ```yaml
-# VelocityGuard Configuration
-#
-# Speed enforcement uses a physics simulation.
-# On each movement packet VelocityGuard runs Minecraft's own
-# horizontal movement equations to predict the maximum displacement the player
-# could legitimately produce and then compares that against what the packet claims.
-
 checks:
   # Global leniency multiplier applied to every max-allowed displacement value.
   # Raise to allow more movement before a flag fires; lower toward 1.0 for
   # stricter enforcement. Must be >= 1.0.
   # For example 1.15 = 15% headroom above the raw physics prediction.
+  # This is the main no-false-positive lever: raise it if legit movement
+  # (jumps, stairs, ice) ever rubberbands; lower it toward 1.0 to catch
+  # smaller speed advantages at the risk of occasional false flags.
   leniency-multiplier: 1.15
 
   speed:
@@ -60,7 +56,8 @@ checks:
       duration: 3000
 
     elytra:
-      landing-duration: 1500  # ms of post-landing momentum buffer
+      # ms of post-landing buffer: horizontal momentum carries briefly after a glide.
+      landing-duration: 1500
 
     # Vehicle speed multipliers (horse, boat, strider, pig, etc.).
     vehicle-speed-multiplier: 1.5
@@ -91,7 +88,7 @@ checks:
     enabled: true
 
 settings:
-  # Verbose per-packet logging.  Enable only for testing.
+  # Verbose per-packet logging. Enable only for testing.
   debug-mode: false
 ```
 

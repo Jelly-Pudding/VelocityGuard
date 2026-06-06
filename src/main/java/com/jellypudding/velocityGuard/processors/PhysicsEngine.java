@@ -44,7 +44,7 @@ public final class PhysicsEngine {
     // Elytra horizontal physics.
     private static final double ELYTRA_DRAG             = 0.99;
     private static final double ELYTRA_DIVE_FACTOR      = 0.20;
-    private static final double ELYTRA_FIREWORK_TERMINAL = 2.0;
+    public static final double ELYTRA_FIREWORK_TERMINAL = 3.0;
 
     // Max horizontal speed a gliding player could legitimately reach next tick.
     public static double simulateElytraHorizontal(double currentHorizontal, double prevVelocityY) {
