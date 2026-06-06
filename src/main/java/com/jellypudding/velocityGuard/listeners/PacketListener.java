@@ -56,10 +56,8 @@ public class PacketListener implements Listener {
     }
 
     public void inject() {
-        // Register event listener for player join/quit.
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
 
-        // Inject currently online players - process in chunks to minimize main thread impact.
         final Player[] onlinePlayers = plugin.getServer().getOnlinePlayers().toArray(new Player[0]);
 
         new BukkitRunnable() {
@@ -166,22 +164,15 @@ public class PacketListener implements Listener {
                                 if (from.distanceSquared(to) > 0.001) {
                                     successfulPackets.incrementAndGet();
 
-                                    // Pass the client's own onGround flag so jump detection
-                                    // is tick-accurate (the client sets this false the moment
-                                    // it jumps; our server-side isNearGroundAt check lags by
-                                    // roughly one packet).
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, from, to, false, movePacket.isOnGround());
 
                                     if (!allowed) {
-                                        // Don't call super.channelRead - this effectively cancels the packet.
                                         return;
                                     }
                                 }
                             }
                         }
-                        // Handle vehicle movement
                         else if (msg instanceof ServerboundMoveVehiclePacket vehiclePacket) {
-                            // Only process if player is actually in a vehicle.
                             Entity vehicle = player.getVehicle();
                             if (vehicle != null) {
                                 vehiclePackets.incrementAndGet();
@@ -200,11 +191,9 @@ public class PacketListener implements Listener {
                                     Location playerFrom = player.getLocation();
                                     Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
-                                    // No onGround flag in vehicle packets; fall back to server-side check.
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo, true, false);
 
                                     if (!allowed) {
-                                        // Don't call super.channelRead - this effectively cancels the packet.
                                         return;
                                     }
                                 }
@@ -258,9 +247,6 @@ public class PacketListener implements Listener {
         }
     }
 
-    // PlayerTeleportEvent is handled solely by TeleportListener (single guarded
-    // resetPlayerState call) to avoid double-arming the post-teleport gate.
-    // PlayerRespawnEvent is a separate code path from teleports in Bukkit.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         plugin.getMovementChecker().resetPlayerState(

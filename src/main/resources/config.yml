@@ -39,15 +39,8 @@ checks:
       multiplier: 2.5
       duration: 3000
 
-    # Elytra (gliding) settings.
     elytra:
-      # Enforce a speed cap while gliding. Set to false to exempt elytra gliding
-      # from the speed check entirely (legit-elytra escape hatch) - flight/vertical
-      # checks already ignore gliding regardless of this setting.
-      enabled: true
-      # Max horizontal speed (blocks/tick) allowed while gliding. Raise to be more
-      # lenient (firework/dive runs can briefly spike); only used when enabled: true.
-      max-speed: 7.0
+      # ms of post-landing buffer: horizontal momentum carries briefly after a glide.
       landing-duration: 1500
 
     # Vehicle speed multipliers (horse, boat, strider, pig, etc.).

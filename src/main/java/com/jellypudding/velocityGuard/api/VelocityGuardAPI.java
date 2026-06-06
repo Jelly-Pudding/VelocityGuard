@@ -5,14 +5,8 @@ import org.bukkit.entity.Player;
 
 public class VelocityGuardAPI {
 
-    /** Default air-tick threshold matching VelocityGuard's lenient global behaviour (~2 s). */
     public static final int DEFAULT_AIR_TICK_THRESHOLD = 40;
 
-    /**
-     * Recommended air-tick threshold for strict zone enforcement (~1 s).
-     * A normal vanilla jump lands by ~tick 15, so this triggers shortly after
-     * any sustained flight begins.
-     */
     public static final int STRICT_AIR_TICK_THRESHOLD = 20;
 
     private final VelocityGuard plugin;

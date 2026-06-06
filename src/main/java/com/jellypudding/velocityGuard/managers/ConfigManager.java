@@ -17,8 +17,6 @@ public class ConfigManager {
     private final int    knockbackDuration;
     private final double riptideMultiplier;
     private final int    riptideDuration;
-    private final boolean elytraCheckEnabled;
-    private final double elytraSpeed;
     private final int    elytraLandingDuration;
     private final double vehicleSpeedMultiplier;
     private final double vehicleIceSpeedMultiplier;
@@ -40,8 +38,6 @@ public class ConfigManager {
     private static final int    DEF_KNOCKBACK_DURATION      = 1_000;
     private static final double DEF_RIPTIDE_MULTIPLIER      = 2.5;
     private static final int    DEF_RIPTIDE_DURATION        = 3_000;
-    private static final boolean DEF_ELYTRA_CHECK_ENABLED   = true;
-    private static final double DEF_ELYTRA_SPEED            = 4.0;
     private static final int    DEF_ELYTRA_LANDING_DURATION = 1_500;
     private static final double DEF_VEHICLE_SPEED_MULT      = 1.5;
     private static final double DEF_VEHICLE_ICE_SPEED_MULT  = 4.3;
@@ -62,8 +58,6 @@ public class ConfigManager {
         knockbackDuration     = Math.max(200,  config.getInt   ("checks.speed.knockback.duration",     DEF_KNOCKBACK_DURATION));
         riptideMultiplier     = Math.max(1.0,  config.getDouble("checks.speed.riptide.multiplier",     DEF_RIPTIDE_MULTIPLIER));
         riptideDuration       = Math.max(500,  config.getInt   ("checks.speed.riptide.duration",       DEF_RIPTIDE_DURATION));
-        elytraCheckEnabled    = config.getBoolean("checks.speed.elytra.enabled", DEF_ELYTRA_CHECK_ENABLED);
-        elytraSpeed           = Math.max(1.0,  config.getDouble("checks.speed.elytra.max-speed",       DEF_ELYTRA_SPEED));
         elytraLandingDuration = Math.max(500,  config.getInt   ("checks.speed.elytra.landing-duration",DEF_ELYTRA_LANDING_DURATION));
         vehicleSpeedMultiplier    = Math.max(1.0, config.getDouble("checks.speed.vehicle-speed-multiplier",     DEF_VEHICLE_SPEED_MULT));
         vehicleIceSpeedMultiplier = Math.max(1.0, config.getDouble("checks.speed.vehicle-ice-speed-multiplier", DEF_VEHICLE_ICE_SPEED_MULT));
@@ -84,8 +78,6 @@ public class ConfigManager {
     public int    getKnockbackDuration()          { return knockbackDuration; }
     public double getRiptideMultiplier()          { return riptideMultiplier; }
     public int    getRiptideDuration()            { return riptideDuration; }
-    public boolean isElytraCheckEnabled()          { return elytraCheckEnabled; }
-    public double getElytraSpeed()                 { return elytraSpeed; }
     public int    getElytraLandingDuration()      { return elytraLandingDuration; }
     public double getVehicleSpeedMultiplier()     { return vehicleSpeedMultiplier; }
     public double getVehicleIceSpeedMultiplier()  { return vehicleIceSpeedMultiplier; }

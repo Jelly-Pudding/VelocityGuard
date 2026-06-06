@@ -41,6 +41,18 @@ public final class PhysicsEngine {
     // Flat per-tick speed cap for all vehicle movement.
     public static final double MAX_VEHICLE_SPEED = 0.85;
 
+    // Elytra horizontal physics.
+    private static final double ELYTRA_DRAG             = 0.99;
+    private static final double ELYTRA_DIVE_FACTOR      = 0.20;
+    private static final double ELYTRA_FIREWORK_TERMINAL = 2.0;
+
+    // Max horizontal speed a gliding player could legitimately reach next tick.
+    public static double simulateElytraHorizontal(double currentHorizontal, double prevVelocityY) {
+        double dive     = Math.max(0.0, -prevVelocityY) * ELYTRA_DIVE_FACTOR;
+        double firework = Math.max(0.0, ELYTRA_FIREWORK_TERMINAL - currentHorizontal) * 0.5 + 0.15;
+        return (currentHorizontal + dive) * ELYTRA_DRAG + firework;
+    }
+
     private static final float SLIPPERINESS_DEFAULT  = 0.600f;
     private static final float SLIPPERINESS_ICE      = 0.980f;
     private static final float SLIPPERINESS_BLUE_ICE = 0.989f;
@@ -78,10 +90,6 @@ public final class PhysicsEngine {
     }
 
     public static boolean isNearGroundAt(Location loc) {
-        // Use -0.65 instead of -0.5 so that blocks with a tall hitbox (fences,
-        // walls: 1.5-block collision height) are detected.  A player standing on
-        // a fence has their feet at fence_y + 1.5; with -0.5 the probe lands at
-        // fence_y + 1.0 (air), incorrectly marking them as airborne.
         for (double x = -0.3; x <= 0.3; x += 0.3) {
             for (double z = -0.3; z <= 0.3; z += 0.3) {
                 Block b = loc.clone().add(x, -0.65, z).getBlock();

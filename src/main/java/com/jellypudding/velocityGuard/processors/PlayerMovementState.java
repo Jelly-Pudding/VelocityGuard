@@ -51,13 +51,7 @@ public class PlayerMovementState {
     // Wall-clock time until all movement packets are denied.
     public long blockedUntilMs;
 
-    // Post-teleport gate. A genuine server teleport (respawn, /tp, portal, end
-    // gateway) is "settled" only once the client has provably acknowledged it via
-    // the transaction clock - NOT after a fixed wall-clock window. While awaiting,
-    // movement packets are accepted and used purely to re-anchor tracking (the
-    // server stays in sync with the client's honest post-teleport physics), but the
-    // speed/flight judgement is skipped. settleUntilMs is kept only as a lost-pong
-    // fallback so a dropped transaction can never pin a player forever.
+    // Post-teleport gate.
     public long settleUntilMs;
     public volatile boolean awaitingTeleport;
     public int teleportAnchorTxnId;
@@ -131,10 +125,6 @@ public class PlayerMovementState {
         return transactionIdCounter.getAndIncrement();
     }
 
-    // The most recent id handed out by nextTransactionId (i.e. the last transaction
-    // the server sent). Used to anchor teleport/setback acknowledgement to the
-    // transaction clock. Before any transaction is sent this is one below the first
-    // id, so the very first pong after a teleport confirms it.
     public int lastSentTransactionId() {
         return transactionIdCounter.get() - 1;
     }

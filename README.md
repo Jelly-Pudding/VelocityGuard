@@ -32,13 +32,13 @@ checks:
   # Global leniency multiplier applied to every max-allowed displacement value.
   # Raise to allow more movement before a flag fires; lower toward 1.0 for
   # stricter enforcement. Must be >= 1.0.
-  # For example 1.10 = 10% headroom above the raw physics prediction.
-  leniency-multiplier: 1.10
+  # For example 1.15 = 15% headroom above the raw physics prediction.
+  leniency-multiplier: 1.15
 
   speed:
     # Extra displacement slack (blocks) added per expected tick.
     # Absorbs sub-block floating-point variance between client and server.
-    per-tick-tolerance: 0.08
+    per-tick-tolerance: 0.12
 
     # Accumulated excess displacement (blocks) before a violation fires.
     # The buffer decays on clean packets so only *sustained* cheating reaches
@@ -59,9 +59,8 @@ checks:
       multiplier: 2.5
       duration: 3000
 
-    # Elytra landing: horizontal momentum carries briefly after stopping glide.
     elytra:
-      landing-duration: 1500  # ms of post-landing buffer
+      landing-duration: 1500  # ms of post-landing momentum buffer
 
     # Vehicle speed multipliers (horse, boat, strider, pig, etc.).
     vehicle-speed-multiplier: 1.5
@@ -99,7 +98,7 @@ settings:
 ## How It Works
 1. The plugin intercepts `ServerboundMovePlayerPacket` on the Netty thread before the server processes it. Each position-changing packet is treated as exactly one game tick.
 2. A transaction (ping) packet is sent to each player every server tick; the client must echo it back immediately, giving a server-anchored clock the client cannot speed up. Each movement packet adds 50 ms to a running balance and if that balance runs ahead of real time, the client is sending packets faster than 20/s and is flagged.
-3. Minecraft's ground/air movement equations are run for the tick, applying block friction (normal, ice, blue ice, slime), air drag, sprint/jump boost, water drag, and Speed/Slowness potion modifiers. The result is the maximum a player could legitimately move in that single tick.
+3. Minecraft's ground/air movement equations are run for the tick, applying block friction (normal, ice, blue ice, slime), air drag, sprint/jump boost, water drag, and Speed/Slowness potion modifiers. Whilst gliding, the elytra physics model is used instead (0.99 horizontal drag, dive-to-horizontal conversion, and firework thrust toward a terminal speed). The result is the maximum a player could legitimately move in that single tick.
 4. The player's Y velocity is simulated under gravity (`vy = (vy − 0.08) × 0.98` per tick), predicting the maximum upward displacement from the last known velocity. This catches both hover cheats and upward speed cheats.
 5. Any excess in the speed/flight checks accumulates in a per-player violation buffer that decays on clean packets. When the buffer exceeds `violation-threshold` (or the timer check exceeds `max-violations`), the player is rubber-banded to their last valid position and the resulting teleport re-anchors their tracked state.
 
