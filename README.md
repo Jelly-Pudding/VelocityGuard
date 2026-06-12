@@ -29,7 +29,7 @@ checks:
   # This is the main no-false-positive lever: raise it if legit movement
   # (jumps, stairs, ice) ever rubberbands; lower it toward 1.0 to catch
   # smaller speed advantages at the risk of occasional false flags.
-  leniency-multiplier: 1.15
+  leniency-multiplier: 1.50
 
   speed:
     # Extra displacement slack (blocks) added per expected tick.

@@ -41,7 +41,7 @@ public class ConfigManager {
     private static final int    DEF_ELYTRA_LANDING_DURATION = 1_500;
     private static final double DEF_VEHICLE_SPEED_MULT      = 1.5;
     private static final double DEF_VEHICLE_ICE_SPEED_MULT  = 4.3;
-    private static final double DEF_LENIENCY_MULTIPLIER     = 1.10;
+    private static final double DEF_LENIENCY_MULTIPLIER     = 1.50;
     private static final boolean DEF_FLIGHT_CHECK_ENABLED   = true;
     private static final boolean DEF_TIMER_CHECK_ENABLED     = true;
     private static final int     DEF_TIMER_DRIFT_MILLIS      = 120;

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.jellypudding"
-version = "3.2"
+version = "3.3"
 
 repositories {
     mavenCentral()
