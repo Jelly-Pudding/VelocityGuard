@@ -153,10 +153,10 @@ public class PacketListener implements Listener {
                         // Handle regular player movement.
                         else if (msg instanceof ServerboundMovePlayerPacket movePacket) {
                             // Only process if position has changed.
-                            if (movePacket.hasPos) {
-                                double x = movePacket.x;
-                                double y = movePacket.y;
-                                double z = movePacket.z;
+                            if (movePacket.hasPosition()) {
+                                double x = movePacket.getX(0);
+                                double y = movePacket.getY(0);
+                                double z = movePacket.getZ(0);
 
                                 Location from = player.getLocation();
                                 Location to = new Location(player.getWorld(), x, y, z);
