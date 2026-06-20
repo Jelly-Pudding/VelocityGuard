@@ -1,7 +1,7 @@
 name: VelocityGuard
-version: '3.3'
+version: '3.4'
 main: com.jellypudding.velocityGuard.VelocityGuard
-api-version: '26.1.2'
+api-version: '26.2'
 description: A simple and lightweight plugin to mitigate flight and extreme speed cheats
 author: AlphaAlex115
 website: www.minecraftoffline.net
