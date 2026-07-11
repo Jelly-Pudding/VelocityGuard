@@ -31,6 +31,8 @@ public class MovementChecker {
 
     private static final long SETBACK_RETELEPORT_MS = 500L;
 
+    private static final long SERVER_VELOCITY_WINDOW_MS = 3_000L;
+
     private static final int MAX_CATCHUP_TICKS = 4;
 
     public MovementChecker(VelocityGuard plugin) {
@@ -224,6 +226,7 @@ public class MovementChecker {
             effectiveVelocityY = (PhysicsEngine.getJumpVelocity(player) - gravityPreJump)
                     * PhysicsEngine.VERTICAL_DRAG;
         }
+        boolean velocityLaunch = false;
 
         if (cfg.isFlightCheckEnabled() && !isVehicle && !speedViolation && !state.wasOnGround
                 && serverSideAirborne
@@ -254,17 +257,40 @@ public class MovementChecker {
                 double yTolerance = cfg.getPerTickTolerance() * 1.5 * budgetTicks;
                 double yThreshold = maxDy * cfg.getLeniencyMultiplier() + yTolerance;
                 if (dy >= 0 && dy > yThreshold) {
-                    double excess = dy - yThreshold;
-                    state.violationBuffer += excess;
-                    exceededThisPacket = true;
-                    if (plugin.isDebugEnabled()) {
-                        plugin.getLogger().info(String.format(
-                                "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  budget=%d  buf=%.3f",
-                                player.getName(), dy, maxDy, effectiveVelocityY,
-                                budgetTicks, state.violationBuffer));
+                    if (state.lastVelocityMs > 0
+                            && now - state.lastVelocityMs < SERVER_VELOCITY_WINDOW_MS
+                            && state.pendingVelocityY > 0.0) {
+                        double launchVy = Math.max(0.0, effectiveVelocityY) + state.pendingVelocityY;
+                        double kMaxDy = 0.0;
+                        double kvy = launchVy;
+                        for (int t = 0; t < budgetTicks; t++) {
+                            kMaxDy += kvy;
+                            kvy = (kvy - gravityVal) * PhysicsEngine.VERTICAL_DRAG;
+                        }
+                        if (dy <= kMaxDy * cfg.getLeniencyMultiplier() + yTolerance) {
+                            state.pendingVelocityY = 0.0;
+                            effectiveVelocityY = launchVy;
+                            velocityLaunch = true;
+                            if (plugin.isDebugEnabled()) {
+                                plugin.getLogger().info(String.format(
+                                        "[VG-Y] %s  dy=%.3f explained by explosion knockback (vy=%.2f)",
+                                        player.getName(), dy, launchVy));
+                            }
+                        }
                     }
-                    if (state.violationBuffer >= cfg.getViolationThreshold()) {
-                        speedViolation = true;
+                    if (!velocityLaunch) {
+                        double excess = dy - yThreshold;
+                        state.violationBuffer += excess;
+                        exceededThisPacket = true;
+                        if (plugin.isDebugEnabled()) {
+                            plugin.getLogger().info(String.format(
+                                    "[VG-Y] %s  dy=%.3f  maxDy=%.3f  effVy=%.3f  budget=%d  buf=%.3f",
+                                    player.getName(), dy, maxDy, effectiveVelocityY,
+                                    budgetTicks, state.violationBuffer));
+                        }
+                        if (state.violationBuffer >= cfg.getViolationThreshold()) {
+                            speedViolation = true;
+                        }
                     }
                 }
             }
@@ -292,7 +318,7 @@ public class MovementChecker {
 
             if (currentlyGliding) {
                 state.trackedVelocityY = dy;
-            } else if (normalJump || jumpLaunched) {
+            } else if (normalJump || jumpLaunched || velocityLaunch) {
                 state.trackedVelocityY = effectiveVelocityY;
             } else if (!isVehicle && !nowOnGround && serverSideAirborne) {
                 double gravityVal = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)
@@ -323,8 +349,10 @@ public class MovementChecker {
             boolean ridingGhast    = MovementUtils.isRidingGhast(player);
             boolean justUsedRiptide = state.lastRiptideMs > 0
                     && (now - state.lastRiptideMs < 1_500);
+            boolean recentExplosionKb = state.lastVelocityMs > 0
+                    && (now - state.lastVelocityMs < 1_500);
 
-            if (!justUsedRiptide && !ridingGhast) {
+            if (!justUsedRiptide && !ridingGhast && !recentExplosionKb) {
                 MovementUtils.FlightResult fr = MovementUtils.checkFlying(
                         player, from, to, state.airTicks,
                         plugin.isDebugEnabled(), plugin.getLogger(), flightThreshold);
@@ -333,7 +361,8 @@ public class MovementChecker {
             } else if (plugin.isDebugEnabled() && state.airTicks > 30) {
                 plugin.getLogger().info(player.getName()
                         + " exempt from flight check: "
-                        + (ridingGhast ? "riding ghast" : "recent riptide"));
+                        + (ridingGhast ? "riding ghast"
+                           : justUsedRiptide ? "recent riptide" : "explosion knockback"));
             }
         }
 
@@ -399,6 +428,16 @@ public class MovementChecker {
                         * (1.0 - (double) elapsed / cfg.getRiptideDuration());
                 double rtTracked = state.trackedSpeed * (1.0 + rtFactor);
                 return computeSimulatedMax(player, state, rtTracked, ticks, to, cfg, toOnGround);
+            }
+        }
+
+        if (state.lastVelocityMs > 0 && state.pendingVelocityH > 0.0) {
+            long elapsed = now - state.lastVelocityMs;
+            if (elapsed < SERVER_VELOCITY_WINDOW_MS) {
+                double kbSpeed = state.pendingVelocityH
+                        * (1.0 - (double) elapsed / SERVER_VELOCITY_WINDOW_MS);
+                return computeSimulatedMax(player, state, state.trackedSpeed + kbSpeed,
+                        ticks, to, cfg, toOnGround);
             }
         }
 
@@ -555,6 +594,7 @@ public class MovementChecker {
         state.blockedUntilMs = 0;
         state.lastDamageMs   = 0;
         state.lastRiptideMs  = 0;
+        state.lastVelocityMs = 0;
         beginTeleportGate(state, now);
     }
 
@@ -603,6 +643,26 @@ public class MovementChecker {
         if (plugin.isDebugEnabled()) {
             plugin.getLogger().info(player.getName()
                     + " used riptide - riptide speed allowance applied.");
+        }
+    }
+
+    public void recordServerVelocity(Player player, double vx, double vy, double vz) {
+        if (player == null) return;
+        PlayerMovementState state = playerStates.get(player.getUniqueId());
+        if (state == null) return;
+
+        long now = System.currentTimeMillis();
+        boolean stacking = state.lastVelocityMs > 0
+                && now - state.lastVelocityMs < SERVER_VELOCITY_WINDOW_MS;
+        state.pendingVelocityY = (stacking ? Math.max(0.0, state.pendingVelocityY) : 0.0) + vy;
+        state.pendingVelocityH = (stacking ? state.pendingVelocityH : 0.0)
+                + Math.sqrt(vx * vx + vz * vz);
+        state.lastVelocityMs = now;
+
+        if (plugin.isDebugEnabled()) {
+            plugin.getLogger().info(String.format(
+                    "%s explosion knockback (%.2f, %.2f, %.2f) - velocity allowance applied.",
+                    player.getName(), vx, vy, vz));
         }
     }
 

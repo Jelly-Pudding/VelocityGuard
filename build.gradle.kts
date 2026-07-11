@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.jellypudding"
-version = "3.4"
+version = "3.5"
 
 repositories {
     mavenCentral()
@@ -20,4 +20,4 @@ java {
 }
 
 // Use Mojang mappings since we're targeting Paper only
-paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION 
+paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION

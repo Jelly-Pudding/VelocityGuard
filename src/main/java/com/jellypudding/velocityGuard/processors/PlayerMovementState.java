@@ -39,6 +39,11 @@ public class PlayerMovementState {
     // Wall-clock time of the last riptide use.
     public long lastRiptideMs;
 
+    // Explosion knockback (wind charge, wind burst, TNT) sent to the client but not yet seen in movement.
+    public double pendingVelocityY;
+    public double pendingVelocityH;
+    public long lastVelocityMs;
+
     // Whether the player was gliding last packet.
     public boolean wasGliding;
 

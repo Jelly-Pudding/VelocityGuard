@@ -16,13 +16,16 @@ import org.bukkit.scheduler.BukkitRunnable;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ClientboundExplodePacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
 import net.minecraft.network.protocol.common.ServerboundPongPacket;
+import net.minecraft.world.phys.Vec3;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
 
 import java.util.Map;
 import java.util.UUID;
@@ -210,6 +213,16 @@ public class PacketListener implements Listener {
 
                     // Pass the packet along if it wasn't cancelled...
                     super.channelRead(ctx, msg);
+                }
+
+                @Override
+                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                    if (msg instanceof ClientboundExplodePacket explode
+                            && explode.playerKnockback().isPresent()) {
+                        Vec3 kb = explode.playerKnockback().get();
+                        plugin.getMovementChecker().recordServerVelocity(player, kb.x, kb.y, kb.z);
+                    }
+                    super.write(ctx, msg, promise);
                 }
             });
 
