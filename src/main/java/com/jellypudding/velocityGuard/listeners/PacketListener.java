@@ -19,6 +19,7 @@ import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundExplodePacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundMoveVehiclePacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.common.ServerboundPongPacket;
 import net.minecraft.world.phys.Vec3;
 
@@ -174,6 +175,10 @@ public class PacketListener implements Listener {
                                     }
                                 }
                             }
+                        }
+                        else if (msg instanceof ServerboundPlayerActionPacket action
+                                && action.getAction() == ServerboundPlayerActionPacket.Action.RELEASE_USE_ITEM) {
+                            plugin.getMovementChecker().recordRiptideRelease(player);
                         }
                         else if (msg instanceof ServerboundMoveVehiclePacket vehiclePacket) {
                             Entity vehicle = player.getVehicle();

@@ -5,9 +5,13 @@ import com.jellypudding.velocityGuard.managers.ConfigManager;
 import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.Map;
 import java.util.UUID;
@@ -417,7 +421,9 @@ public class MovementChecker {
                 double kbFactor = cfg.getKnockbackMultiplier()
                         * (1.0 - (double) elapsed / cfg.getKnockbackDuration());
                 double kbTracked = state.trackedSpeed * (1.0 + kbFactor);
-                return computeSimulatedMax(player, state, kbTracked, ticks, to, cfg, toOnGround);
+                return computeSimulatedMax(player, state,
+                        Math.max(kbTracked, velocityBoostedSpeed(state, now)),
+                        ticks, to, cfg, toOnGround);
             }
         }
 
@@ -427,21 +433,25 @@ public class MovementChecker {
                 double rtFactor = cfg.getRiptideMultiplier()
                         * (1.0 - (double) elapsed / cfg.getRiptideDuration());
                 double rtTracked = state.trackedSpeed * (1.0 + rtFactor);
-                return computeSimulatedMax(player, state, rtTracked, ticks, to, cfg, toOnGround);
-            }
-        }
-
-        if (state.lastVelocityMs > 0 && state.pendingVelocityH > 0.0) {
-            long elapsed = now - state.lastVelocityMs;
-            if (elapsed < SERVER_VELOCITY_WINDOW_MS) {
-                double kbSpeed = state.pendingVelocityH
-                        * (1.0 - (double) elapsed / SERVER_VELOCITY_WINDOW_MS);
-                return computeSimulatedMax(player, state, state.trackedSpeed + kbSpeed,
+                return computeSimulatedMax(player, state,
+                        Math.max(rtTracked, velocityBoostedSpeed(state, now)),
                         ticks, to, cfg, toOnGround);
             }
         }
 
-        return computeSimulatedMax(player, state, state.trackedSpeed, ticks, to, cfg, toOnGround);
+        return computeSimulatedMax(player, state, velocityBoostedSpeed(state, now),
+                ticks, to, cfg, toOnGround);
+    }
+
+    private double velocityBoostedSpeed(PlayerMovementState state, long now) {
+        if (state.lastVelocityMs > 0 && state.pendingVelocityH > 0.0) {
+            long elapsed = now - state.lastVelocityMs;
+            if (elapsed < SERVER_VELOCITY_WINDOW_MS) {
+                return state.trackedSpeed + state.pendingVelocityH
+                        * (1.0 - (double) elapsed / SERVER_VELOCITY_WINDOW_MS);
+            }
+        }
+        return state.trackedSpeed;
     }
 
     private double computeSimulatedMax(Player player, PlayerMovementState state,
@@ -646,6 +656,17 @@ public class MovementChecker {
         }
     }
 
+    public void recordRiptideRelease(Player player) {
+        if (player == null || !player.isInWaterOrRain()) return;
+        ItemStack item = player.getActiveItem();
+        if (item.getType() != Material.TRIDENT) return;
+        int level = item.getEnchantmentLevel(Enchantment.RIPTIDE);
+        if (level <= 0) return;
+
+        Vector v = player.getLocation().getDirection().multiply(0.75 * (level + 1));
+        recordServerVelocity(player, v.getX(), v.getY(), v.getZ());
+    }
+
     public void recordServerVelocity(Player player, double vx, double vy, double vz) {
         if (player == null) return;
         PlayerMovementState state = playerStates.get(player.getUniqueId());
@@ -661,7 +682,7 @@ public class MovementChecker {
 
         if (plugin.isDebugEnabled()) {
             plugin.getLogger().info(String.format(
-                    "%s explosion knockback (%.2f, %.2f, %.2f) - velocity allowance applied.",
+                    "%s server velocity (%.2f, %.2f, %.2f) - velocity allowance applied.",
                     player.getName(), vx, vy, vz));
         }
     }
