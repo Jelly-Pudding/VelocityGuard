@@ -53,6 +53,9 @@ public class PlayerMovementState {
     // Wall-clock time the player was last on/just above a slime block.
     public long lastSlimeContactMs;
 
+    // Wall-clock time the player was last inside an erupting geyser column.
+    public long lastGeyserMs;
+
     // Wall-clock time until all movement packets are denied.
     public long blockedUntilMs;
 

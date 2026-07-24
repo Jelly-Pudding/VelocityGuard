@@ -250,6 +250,13 @@ public class MovementChecker {
                             && now - state.lastRiptideMs < cfg.getRiptideDuration());
 
             if (!yExempt) {
+                if (MovementUtils.isInGeyserColumn(to)) {
+                    state.lastGeyserMs = now;
+                }
+                yExempt = state.lastGeyserMs > 0 && now - state.lastGeyserMs < 1_500;
+            }
+
+            if (!yExempt) {
                 double gravityVal = player.hasPotionEffect(PotionEffectType.SLOW_FALLING)
                         ? 0.01 : PhysicsEngine.GRAVITY;
                 double maxDy = 0.0;
@@ -355,8 +362,10 @@ public class MovementChecker {
                     && (now - state.lastRiptideMs < 1_500);
             boolean recentExplosionKb = state.lastVelocityMs > 0
                     && (now - state.lastVelocityMs < 1_500);
+            boolean recentGeyser = state.lastGeyserMs > 0
+                    && (now - state.lastGeyserMs < 1_500);
 
-            if (!justUsedRiptide && !ridingGhast && !recentExplosionKb) {
+            if (!justUsedRiptide && !ridingGhast && !recentExplosionKb && !recentGeyser) {
                 MovementUtils.FlightResult fr = MovementUtils.checkFlying(
                         player, from, to, state.airTicks,
                         plugin.isDebugEnabled(), plugin.getLogger(), flightThreshold);
@@ -366,7 +375,8 @@ public class MovementChecker {
                 plugin.getLogger().info(player.getName()
                         + " exempt from flight check: "
                         + (ridingGhast ? "riding ghast"
-                           : justUsedRiptide ? "recent riptide" : "explosion knockback"));
+                           : justUsedRiptide ? "recent riptide"
+                           : recentExplosionKb ? "explosion knockback" : "geyser"));
             }
         }
 
@@ -605,6 +615,7 @@ public class MovementChecker {
         state.lastDamageMs   = 0;
         state.lastRiptideMs  = 0;
         state.lastVelocityMs = 0;
+        state.lastGeyserMs   = 0;
         beginTeleportGate(state, now);
     }
 

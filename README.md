@@ -8,7 +8,7 @@
 - **Direct Detection**: Detects cheating at the packet level on the Netty thread before the server processes the move.
 - **Violation Buffer**: Excess displacement accumulates in a buffer that decays on clean packets so a single lag spike should not trigger a false positive.
 - **Setback Enforcement**: On a confirmed violation the player is rubber-banded to their last valid position.
-- **Adaptive Exemptions**: Handles knockback, explosion launches (wind charges, wind burst maces, TNT), riptide, elytra landing, potions, boats, horses, swimming, levitation, and happy ghasts automatically.
+- **Adaptive Exemptions**: Handles knockback, explosion launches (wind charges, wind burst maces, TNT), riptide, geysers, elytra landing, potions, boats, horses, swimming, levitation, and happy ghasts automatically.
 - **Leniency Multiplier**: A single top-level knob to loosen all checks at once without touching individual parameters.
 - **Toggleable Flight Check**: Physics-based Y simulation catches hover and ascent cheats.
 - **Developer API**: Lets other plugins enforce no-fly zones on specific players on demand.

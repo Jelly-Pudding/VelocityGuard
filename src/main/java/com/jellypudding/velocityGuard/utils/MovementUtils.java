@@ -81,6 +81,23 @@ public class MovementUtils {
         return loc.clone().add(0, 1, 0).getBlock().getType() == Material.BUBBLE_COLUMN;
     }
 
+    public static boolean isInGeyserColumn(Location loc) {
+        for (double x = -0.3; x <= 0.3; x += 0.3) {
+            for (double z = -0.3; z <= 0.3; z += 0.3) {
+                for (int y = 1; y <= 25; y++) {
+                    Block b = loc.clone().add(x, -y, z).getBlock();
+                    if (b.getType() == Material.POTENT_SULFUR) {
+                        String state = b.getBlockData().getAsString();
+                        if (state.contains("erupting") || state.contains("continuous")) return true;
+                        break;
+                    }
+                    if (!b.isPassable()) break;
+                }
+            }
+        }
+        return false;
+    }
+
     // True when a slime block is just below the player.
     public static boolean isNearSlime(Player player) {
         Location loc = player.getLocation();
