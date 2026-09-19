@@ -185,9 +185,9 @@ public class PacketListener implements Listener {
                             if (vehicle != null) {
                                 vehiclePackets.incrementAndGet();
 
-                                double packetX = vehiclePacket.position().x;
-                                double packetY = vehiclePacket.position().y;
-                                double packetZ = vehiclePacket.position().z;
+                                double packetX = vehiclePacket.movingTo().position().x;
+                                double packetY = vehiclePacket.movingTo().position().y;
+                                double packetZ = vehiclePacket.movingTo().position().z;
 
                                 Location vehicleLocation = vehicle.getLocation();
 
