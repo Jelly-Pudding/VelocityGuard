@@ -1,6 +1,7 @@
 package com.jellypudding.velocityGuard.listeners;
 
 import com.jellypudding.velocityGuard.VelocityGuard;
+import com.jellypudding.velocityGuard.utils.MovementUtils;
 import org.bukkit.Location;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
@@ -165,7 +166,7 @@ public class PacketListener implements Listener {
                                 Location from = player.getLocation();
                                 Location to = new Location(player.getWorld(), x, y, z);
 
-                                if (from.distanceSquared(to) > 0.001) {
+                                if (MovementUtils.isWithinWorldLimits(to) && from.distanceSquared(to) > 0.001) {
                                     successfulPackets.incrementAndGet();
 
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, from, to, false, movePacket.isOnGround());
@@ -195,10 +196,10 @@ public class PacketListener implements Listener {
                                 double dy = packetY - vehicleLocation.getY();
                                 double dz = packetZ - vehicleLocation.getZ();
 
-                                if (dx*dx + dy*dy + dz*dz > 0.001) {
-                                    Location playerFrom = player.getLocation();
-                                    Location playerTo = playerFrom.clone().add(dx, dy, dz);
+                                Location playerFrom = player.getLocation();
+                                Location playerTo = playerFrom.clone().add(dx, dy, dz);
 
+                                if (MovementUtils.isWithinWorldLimits(playerTo) && dx*dx + dy*dy + dz*dz > 0.001) {
                                     boolean allowed = plugin.getMovementChecker().processMovement(player, playerFrom, playerTo, true, false);
 
                                     if (!allowed) {

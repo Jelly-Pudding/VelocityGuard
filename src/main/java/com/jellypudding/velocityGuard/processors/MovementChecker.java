@@ -523,7 +523,7 @@ public class MovementChecker {
         PlayerMovementState state = playerStates.get(player.getUniqueId());
         if (state == null) return false;
 
-        final Location target = state.lastValidPosition != null
+        final Location target = state.lastValidPosition != null && MovementUtils.isWithinWorldLimits(state.lastValidPosition)
                 ? state.lastValidPosition.clone()
                 : player.getLocation();
 

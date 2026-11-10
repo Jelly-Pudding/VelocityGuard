@@ -25,6 +25,14 @@ public class MovementUtils {
             Material.TWISTING_VINES, Material.TWISTING_VINES_PLANT,
             Material.CAVE_VINES, Material.CAVE_VINES_PLANT);
 
+    // Move packets reach us before vanilla kicks on NaN and clamps to the world limits; a setback to an
+    // out-of-bounds position crashes the server in chunk creation.
+    public static boolean isWithinWorldLimits(Location loc) {
+        double x = loc.getX(), y = loc.getY(), z = loc.getZ();
+        return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z)
+                && Math.abs(x) <= 2.9999984E7 && Math.abs(z) <= 2.9999984E7 && Math.abs(y) <= 2.0E7;
+    }
+
     public static boolean isNearGround(Player player) {
         return isNearGroundAt(player.getLocation());
     }
